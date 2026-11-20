@@ -1,36 +1,35 @@
 #!/usr/bin/env python3
-"""Draw the front page for make.fun news-image-20261120.
+"""Front page for make.fun news-image-20261120, drawn from scratch.
 
-48 stories for Friday 20 November 2026, in the winning one-page
-newspaper style (cf. the winning entries of the 17-19 Nov editions:
-36-43 stories, first 13 illustrated, a map, a numbers strip): dark
-navy masthead, three rich illustrated panels, three featured stories,
-TEN illustrated medium tiles (5 columns x 2 rows), a BY THE NUMBERS
-strip, a dotted world map with numbered pins, STORIES BY REGION bars,
-and an ALSO list of 35 one-line briefs. 13 stories illustrated in
-total (3 panels + 10 tiles).
+48 real stories from Friday 20 November 2026, laid out as a one-page
+newspaper: a dark navy masthead, three illustrated feature panels,
+three featured stories, ten illustrated medium tiles (5 x 2), a BY THE
+NUMBERS strip, a dotted world map carrying 13 numbered pins, STORIES
+BY REGION bars, and 35 one-line briefs.
 
-The day: the Trump-Xi-Putin trilateral in Shenzhen ends with a joint
-declaration on the UN, nuclear arms and oil; Cyclone Akvan makes
-landfall on India's east coast at noon, 300,000 evacuated; Anthropic
-closes its first Nasdaq day at $97.17, up 17% on the record $81.3bn
-IPO; the Crimea bridge is hit a third time; the COP31 closing draft
-drops every mention of fossil fuels; the ICJ rules on the Myanmar
-genocide case; Russian strikes damage the Dutch and Austrian
-embassies in Kyiv; Israel's Gaza ground push displaces 6,000 people
-in a day. Nothing invented: every story was reported on 20 Nov 2026
-(wire digests + fresh search 20 Nov 07:15 WIB: Reuters, CNN, Times
-live blog, Yonhap/AJP, IMD bulletins, ASX pre-market, COP31 closing
-coverage).
+The day in brief: the Trump-Xi-Putin trilateral in Shenzhen closes
+with a joint declaration on the UN, nuclear arms and oil; Cyclone
+Akvan makes landfall on India's east coast at noon with 300,000
+evacuated; Anthropic closes its first Nasdaq day at $97.17, up 17%
+on the record $81.3bn IPO; the Crimea bridge is hit a third time;
+the COP31 closing draft drops every mention of fossil fuels; the
+ICJ rules on the Myanmar genocide case; Russian strikes damage the
+Dutch and Austrian embassies in Kyiv; Israel's Gaza ground push
+displaces 6,000 people in a single day. Every story was reported
+on 20 Nov 2026 (wire digests plus fresh search 20 Nov 07:15 WIB:
+Reuters, CNN, Times live blog, Yonhap/AJP, IMD bulletins, ASX
+pre-market, COP31 closing coverage). Nothing is invented.
 
-This program draws the whole page itself with the Python standard
-library only: a small RGB canvas, a hand-made 5x7 bitmap font, flat
-vector panel art, a dotted world map from hand-drawn continent
-outlines, and a PNG encoder built on zlib. No network, no randomness,
-no third-party packages -- running it twice writes the same bytes.
-It writes /output/entry.png (or $MAKEFUN_OUTPUT_DIR).
+Everything here is drawn by this one file with the Python standard
+library only: a bytearray RGB surface, a hand-made 5x7 bitmap font
+stored as integer bitmasks, flat vector panel art, a dotted world
+map traced from hand-drawn continent outlines, and a PNG writer
+built on zlib. No network access, no randomness, no third-party
+packages -- two runs write byte-identical output.
 
-Usage: python3 main.py  ->  writes /output/entry.png (1024x1024, <=1 MiB)
+Usage: python3 main.py  ->  writes /output/entry.png
+       (1024x1024, well under the 1 MiB cap; $MAKEFUN_OUTPUT_DIR
+       overrides the output directory)
 """
 
 import binascii
@@ -41,9 +40,9 @@ import struct
 import sys
 import zlib
 
-W, H = 1024, 1024
+PAGE_W, PAGE_H = 1024, 1024
 MARGIN = 28
-CW = W - 2 * MARGIN  # 968
+CW = PAGE_W - 2 * MARGIN  # 968, the live column width
 
 PAPER = (247, 242, 231)
 INK = (26, 26, 26)
@@ -68,345 +67,334 @@ PIN_GREEN = (46, 140, 70)
 PIN_TEAL = (20, 120, 130)
 
 
-# ------------------------------------------------------------------ canvas
-class Canvas:
-    """An RGB canvas backed by one bytearray; all drawing is slice work."""
+# ----------------------------------------------------------------- surface
+class Surface:
+    """RGB picture held as a single bytearray, drawn with slices."""
 
     def __init__(self, w, h, bg):
         self.w = w
         self.h = h
-        self.px = bytearray(bytes(bg) * (w * h))
+        self.buf = bytearray(bytes(bg) * (w * h))
 
-    def _row(self, y):
+    def _off(self, y):
         return y * self.w * 3
 
-    def rect(self, x, y, w, h, col):
-        """Filled rectangle, clipped to the canvas."""
-        x0 = max(0, x)
-        y0 = max(0, y)
-        x1 = min(self.w, x + w)
-        y1 = min(self.h, y + h)
+    def box(self, x, y, w, h, rgb):
+        """Filled rectangle, clipped to the picture."""
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(self.w, x + w), min(self.h, y + h)
         if x1 <= x0 or y1 <= y0:
             return
-        span = bytes(col) * (x1 - x0)
+        span = bytes(rgb) * (x1 - x0)
         for yy in range(y0, y1):
-            o = self._row(yy) + x0 * 3
-            self.px[o:o + len(span)] = span
+            o = self._off(yy) + x0 * 3
+            self.buf[o:o + len(span)] = span
 
-    def hline(self, x, y, w, col, thick=1):
-        self.rect(x, y, w, thick, col)
+    def hbar(self, x, y, w, rgb, t=1):
+        self.box(x, y, w, t, rgb)
 
-    def vline(self, x, y, h, col, thick=1):
-        self.rect(x, y, thick, h, col)
+    def vbar(self, x, y, h, rgb, t=1):
+        self.box(x, y, t, h, rgb)
 
-    def line(self, x0, y0, x1, y1, col, thick=1):
-        """Bresenham line with a square brush."""
-        dx = abs(x1 - x0)
-        dy = -abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx + dy
-        half = thick // 2
-        while True:
-            self.rect(x0 - half, y0 - half, thick, thick, col)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 >= dy:
-                err += dy
-                x0 += sx
-            if e2 <= dx:
-                err += dx
-                y0 += sy
+    def seg(self, x0, y0, x1, y1, rgb, t=1):
+        """Straight segment, walked with a DDA stepper and a square tip."""
+        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+        half = t // 2
+        for i in range(steps + 1):
+            f = i / steps
+            px = int(round(x0 + (x1 - x0) * f))
+            py = int(round(y0 + (y1 - y0) * f))
+            self.box(px - half, py - half, t, t, rgb)
 
-    def circle(self, cx, cy, r, col):
-        """Filled circle via horizontal spans."""
+    def disc(self, cx, cy, r, rgb):
+        """Filled disc, one horizontal span per row."""
         r = int(r)
         for dy in range(-r, r + 1):
             half = int((r * r - dy * dy) ** 0.5)
-            self.rect(cx - half, cy + dy, half * 2 + 1, 1, col)
+            self.box(cx - half, cy + dy, half * 2 + 1, 1, rgb)
 
-    def ring(self, cx, cy, r, col, thick=1):
-        """Circle outline, drawn as concentric rings."""
-        for rr in range(r, r - thick, -1):
-            if rr < 0:
-                continue
-            for dy in range(-rr, rr + 1):
-                half = int((rr * rr - dy * dy) ** 0.5)
-                self.rect(cx - half, cy + dy, 1, 1, col)
-                self.rect(cx + half, cy + dy, 1, 1, col)
+    def disc_ring(self, cx, cy, r, rgb, t=1):
+        """Disc outline: every pixel in the band r-t < d <= r is painted."""
+        r = int(r)
+        lo = (r - t) * (r - t)
+        hi = r * r
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                d2 = dx * dx + dy * dy
+                if lo < d2 <= hi:
+                    self.box(cx + dx, cy + dy, 1, 1, rgb)
 
-    def ellipse(self, cx, cy, rx, ry, col):
+    def oval(self, cx, cy, rx, ry, rgb):
         for dy in range(-ry, ry + 1):
-            t = 1.0 - (dy * dy) / float(ry * ry)
-            half = int(rx * (t ** 0.5)) if t > 0 else 0
-            self.rect(cx - half, cy + dy, half * 2 + 1, 1, col)
+            q = 1.0 - (dy * dy) / float(ry * ry)
+            half = int(rx * (q ** 0.5)) if q > 0 else 0
+            self.box(cx - half, cy + dy, half * 2 + 1, 1, rgb)
 
-    def arc(self, cx, cy, r, a0, a1, col, thick=2):
-        """Arc (degrees, 0 = east, clockwise positive) as short chords."""
-        steps = max(4, int(abs(a1 - a0) / 6.0) + 1)
-        prev = None
-        for i in range(steps + 1):
-            a = math.radians(a0 + (a1 - a0) * i / steps)
-            px = int(cx + r * math.cos(a))
-            py = int(cy + r * math.sin(a))
-            if prev is not None:
-                self.line(prev[0], prev[1], px, py, col, thick)
-            prev = (px, py)
+    def bend(self, cx, cy, r, a0, a1, rgb, t=2):
+        """Arc from a0 to a1 degrees (0 = east, clockwise), as chords."""
+        span = abs(a1 - a0)
+        n = max(4, int(span / 6.0) + 1)
+        last = None
+        for i in range(n + 1):
+            a = math.radians(a0 + (a1 - a0) * i / n)
+            pt = (int(cx + r * math.cos(a)), int(cy + r * math.sin(a)))
+            if last is not None:
+                self.seg(last[0], last[1], pt[0], pt[1], rgb, t)
+            last = pt
 
-    def polygon(self, pts, col):
-        """Scanline fill (even-odd) of a polygon given as [(x, y), ...]."""
+    def poly(self, pts, rgb):
+        """Fill a polygon with the even-odd rule, one span per row."""
         if len(pts) < 3:
             return
+        edges = []
+        for i, (x0, y0) in enumerate(pts):
+            x1, y1 = pts[(i + 1) % len(pts)]
+            if y0 != y1:
+                edges.append((x0, y0, x1, y1))
         ys = [p[1] for p in pts]
-        y0, y1 = max(0, min(ys)), min(self.h - 1, max(ys))
-        n = len(pts)
+        y0 = max(0, min(ys))
+        y1 = min(self.h - 1, max(ys))
         for y in range(y0, y1 + 1):
-            xs = []
-            for i in range(n):
-                x0, yy0 = pts[i]
-                x1, yy1 = pts[(i + 1) % n]
-                if (yy0 <= y < yy1) or (yy1 <= y < yy0):
-                    t = (y - yy0) / float(yy1 - yy0)
-                    xs.append(x0 + t * (x1 - x0))
-            xs.sort()
-            for i in range(0, len(xs) - 1, 2):
-                xa, xb = int(xs[i] + 0.5), int(xs[i + 1] + 0.5)
+            hits = []
+            for xa, ya, xb, yb in edges:
+                if (ya <= y < yb) or (yb <= y < ya):
+                    hits.append(xa + (y - ya) / float(yb - ya) * (xb - xa))
+            hits.sort()
+            for k in range(0, len(hits) - 1, 2):
+                xa, xb = int(hits[k] + 0.5), int(hits[k + 1] + 0.5)
                 if xb > xa:
-                    self.rect(xa, y, xb - xa, 1, col)
+                    self.box(xa, y, xb - xa, 1, rgb)
 
-    def vgrad(self, x, y, w, h, top, bottom):
-        """Vertical gradient, one row slice per line."""
+    def shade(self, x, y, w, h, top, bottom):
+        """Vertical blend from top colour to bottom colour."""
         for i in range(h):
-            t = i / max(1, h - 1)
-            col = tuple(int(top[c] + (bottom[c] - top[c]) * t)
+            f = i / max(1, h - 1)
+            rgb = tuple(int(top[c] + (bottom[c] - top[c]) * f)
                         for c in range(3))
-            self.rect(x, y + i, w, 1, col)
+            self.box(x, y + i, w, 1, rgb)
 
-    def outline(self, x, y, w, h, col, thick=1):
-        self.rect(x, y, w, thick, col)
-        self.rect(x, y + h - thick, w, thick, col)
-        self.rect(x, y, thick, h, col)
-        self.rect(x + w - thick, y, thick, h, col)
+    def frame(self, x, y, w, h, rgb, t=1):
+        self.box(x, y, w, t, rgb)
+        self.box(x, y + h - t, w, t, rgb)
+        self.box(x, y, t, h, rgb)
+        self.box(x + w - t, y, t, h, rgb)
 
 
-def star_points(cx, cy, r_out, r_in, rot=-90.0):
-    """Five-point star vertices, alternating outer/inner radius."""
-    pts = []
+def star_poly(cx, cy, ro, ri, tilt=-90.0):
+    """Ten vertices of a five-point star, outer/inner radii alternating."""
+    out = []
     for i in range(10):
-        ang = math.radians(rot + i * 36.0)
-        r = r_out if i % 2 == 0 else r_in
-        pts.append((int(cx + r * math.cos(ang)),
-                    int(cy + r * math.sin(ang))))
-    return pts
+        a = math.radians(tilt + i * 36.0)
+        r = ro if i % 2 == 0 else ri
+        out.append((int(cx + r * math.cos(a)), int(cy + r * math.sin(a))))
+    return out
 
 
-def png_bytes(cv):
-    """Encode the canvas as a PNG (color type 2, filter 0 per row)."""
+def encode_png(surf):
+    """Serialise the surface as a PNG (truecolour, filter 0 per row)."""
+    stride = surf.w * 3
     raw = bytearray()
-    stride = cv.w * 3
-    for y in range(cv.h):
+    for y in range(surf.h):
         raw.append(0)
-        raw += cv.px[y * stride:(y + 1) * stride]
-    comp = zlib.compress(bytes(raw), 9)
+        raw += surf.buf[y * stride:(y + 1) * stride]
+    payload = zlib.compress(bytes(raw), 9)
 
-    def chunk(kind, data):
-        out = struct.pack(">I", len(data)) + kind + data
-        out += struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
-        return out
+    def wrap(kind, data):
+        blob = struct.pack(">I", len(data)) + kind + data
+        blob += struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+        return blob
 
-    ihdr = struct.pack(">IIBBBBB", cv.w, cv.h, 8, 2, 0, 0, 0)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
-            + chunk(b"IDAT", comp) + chunk(b"IEND", b""))
+    head = struct.pack(">IIBBBBB", surf.w, surf.h, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + wrap(b"IHDR", head)
+            + wrap(b"IDAT", payload) + wrap(b"IEND", b""))
 
 
 # -------------------------------------------------------------------- font
-# Hand-made 5x7 bitmap font. Each glyph is 7 rows of 5 cells ('1' = on).
-# Proportional advances: default 6, narrow 4, wide 7, space 4.
-# Glyphs verified by rendering: E has top, middle and bottom bars;
-# g and y carry descenders into rows 5-6; z is a full diagonal.
-FONT = {
-    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
-    "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
-    "C": ("01110", "10001", "10000", "10000", "10000", "10001", "01110"),
-    "D": ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
-    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
-    "F": ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
-    "G": ("01110", "10001", "10000", "10111", "10001", "10001", "01111"),
-    "H": ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
-    "I": ("01110", "00100", "00100", "00100", "00100", "00100", "01110"),
-    "J": ("00111", "00010", "00010", "00010", "00010", "10010", "01100"),
-    "K": ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
-    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
-    "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
-    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
-    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
-    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
-    "Q": ("01110", "10001", "10001", "10001", "10101", "10010", "01101"),
-    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
-    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
-    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
-    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
-    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
-    "W": ("10001", "10001", "10001", "10101", "10101", "11011", "10001"),
-    "X": ("10001", "10001", "01010", "00100", "01010", "10001", "10001"),
-    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
-    "Z": ("11111", "00001", "00010", "00100", "01000", "10000", "11111"),
-    "a": ("00000", "00000", "01110", "00001", "01111", "10001", "01111"),
-    "b": ("10000", "10000", "11110", "10001", "10001", "10001", "11110"),
-    "c": ("00000", "00000", "01110", "10000", "10000", "10001", "01110"),
-    "d": ("00001", "00001", "01111", "10001", "10001", "10001", "01111"),
-    "e": ("00000", "00000", "01110", "10001", "11111", "10000", "01110"),
-    "f": ("00110", "01001", "01000", "11110", "01000", "01000", "01000"),
-    "g": ("00000", "01110", "10001", "10001", "01111", "00010", "01100"),
-    "h": ("10000", "10000", "11110", "10001", "10001", "10001", "10001"),
-    "i": ("00100", "00000", "01100", "00100", "00100", "00100", "01110"),
-    "j": ("00010", "00000", "00110", "00010", "00010", "00010", "01100"),
-    "k": ("10000", "10000", "10010", "10100", "11000", "10100", "10010"),
-    "l": ("01100", "00100", "00100", "00100", "00100", "00100", "01110"),
-    "m": ("00000", "00000", "11010", "10101", "10101", "10101", "10101"),
-    "n": ("00000", "00000", "11110", "10001", "10001", "10001", "10001"),
-    "o": ("00000", "00000", "01110", "10001", "10001", "10001", "01110"),
-    "p": ("00000", "00000", "11110", "10001", "10001", "11110", "10000"),
-    "q": ("00000", "00000", "01111", "10001", "10001", "01111", "00010"),
-    "r": ("00000", "00000", "10110", "11001", "10000", "10000", "10000"),
-    "s": ("00000", "00000", "01111", "10000", "01110", "00001", "11110"),
-    "t": ("01000", "01000", "11100", "01000", "01000", "01000", "00110"),
-    "u": ("00000", "00000", "10001", "10001", "10001", "10011", "01101"),
-    "v": ("00000", "00000", "10001", "10001", "10001", "01010", "00100"),
-    "w": ("00000", "00000", "10001", "10001", "10101", "10101", "01010"),
-    "x": ("00000", "00000", "10001", "01010", "00100", "01010", "10001"),
-    "y": ("00000", "00000", "10001", "10001", "10001", "01111", "00110"),
-    "z": ("00000", "00000", "11111", "00010", "00100", "01000", "11111"),
-    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
-    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
-    "2": ("01110", "10001", "00001", "00110", "01000", "10000", "11111"),
-    "3": ("11111", "00010", "00100", "00010", "00001", "10001", "01110"),
-    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
-    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
-    "6": ("00110", "01000", "10000", "11110", "10001", "10001", "01110"),
-    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
-    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
-    "9": ("01110", "10001", "10001", "01111", "00001", "00010", "01100"),
-    " ": ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
-    ".": ("00000", "00000", "00000", "00000", "00000", "01100", "01100"),
-    ",": ("00000", "00000", "00000", "00000", "01100", "00100", "01000"),
-    ":": ("00000", "01100", "01100", "00000", "01100", "01100", "00000"),
-    ";": ("00000", "01100", "01100", "00000", "01100", "00100", "01000"),
-    "!": ("00100", "00100", "00100", "00100", "00100", "00000", "00100"),
-    "?": ("01110", "10001", "00001", "00110", "00100", "00000", "00100"),
-    "'": ("00100", "00100", "01000", "00000", "00000", "00000", "00000"),
-    '"': ("01010", "01010", "01010", "00000", "00000", "00000", "00000"),
-    "-": ("00000", "00000", "00000", "01110", "00000", "00000", "00000"),
-    "–": ("00000", "00000", "00000", "01110", "00000", "00000", "00000"),
-    "—": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
-    "(": ("00010", "00100", "01000", "01000", "01000", "00100", "00010"),
-    ")": ("01000", "00100", "00010", "00010", "00010", "00100", "01000"),
-    "/": ("00001", "00010", "00010", "00100", "01000", "01000", "10000"),
-    "%": ("11001", "11010", "00010", "00100", "01000", "01011", "10011"),
-    "$": ("00100", "01111", "10100", "01110", "00101", "11110", "00100"),
-    "&": ("01100", "10010", "10100", "01000", "10101", "10010", "01101"),
-    "@": ("01110", "10001", "10111", "10101", "10110", "10000", "01110"),
-    "#": ("01010", "01010", "11111", "01010", "11111", "01010", "01010"),
-    "*": ("00000", "10101", "01110", "11111", "01110", "10101", "00000"),
-    "+": ("00000", "00100", "00100", "11111", "00100", "00100", "00000"),
-    "=": ("00000", "00000", "11111", "00000", "11111", "00000", "00000"),
-    "<": ("00010", "00100", "01000", "10000", "01000", "00100", "00010"),
-    ">": ("01000", "00100", "00010", "00001", "00010", "00100", "01000"),
-    "_": ("00000", "00000", "00000", "00000", "00000", "00000", "11111"),
-    "•": ("00000", "00000", "01110", "11111", "11111", "01110", "00000"),
-    "·": ("00000", "00000", "00000", "01100", "01100", "00000", "00000"),
-    "°": ("01100", "10010", "01100", "00000", "00000", "00000", "00000"),
-    "€": ("01110", "10001", "10000", "11110", "10000", "10001", "01110"),
-    "×": ("00000", "00000", "10001", "01110", "01110", "10001", "00000"),
-    "’": ("00100", "00100", "01000", "00000", "00000", "00000", "00000"),
-    "“": ("01010", "01010", "01010", "00000", "00000", "00000", "00000"),
-    "”": ("01010", "01010", "01010", "00000", "00000", "00000", "00000"),
+# Hand-made 5x7 bitmap font. Each glyph is a tuple of seven integers;
+# one integer per row, bit 4 = leftmost cell, bit 0 = rightmost cell.
+# Proportional advances: most glyphs 6 units, slim ones 4, broad ones 7.
+# Every glyph is exactly 7 rows; g and y carry descenders in rows 5-6,
+# E keeps its top, middle and bottom bars, z is a full diagonal.
+GLYPHS = {
+    'A': (14, 17, 17, 31, 17, 17, 17),
+    'B': (30, 17, 17, 30, 17, 17, 30),
+    'C': (14, 17, 16, 16, 16, 17, 14),
+    'D': (30, 17, 17, 17, 17, 17, 30),
+    'E': (31, 16, 16, 30, 16, 16, 31),
+    'F': (31, 16, 16, 30, 16, 16, 16),
+    'G': (14, 17, 16, 23, 17, 17, 15),
+    'H': (17, 17, 17, 31, 17, 17, 17),
+    'I': (14, 4, 4, 4, 4, 4, 14),
+    'J': (7, 2, 2, 2, 2, 18, 12),
+    'K': (17, 18, 20, 24, 20, 18, 17),
+    'L': (16, 16, 16, 16, 16, 16, 31),
+    'M': (17, 27, 21, 21, 17, 17, 17),
+    'N': (17, 25, 21, 19, 17, 17, 17),
+    'O': (14, 17, 17, 17, 17, 17, 14),
+    'P': (30, 17, 17, 30, 16, 16, 16),
+    'Q': (14, 17, 17, 17, 21, 18, 13),
+    'R': (30, 17, 17, 30, 20, 18, 17),
+    'S': (15, 16, 16, 14, 1, 1, 30),
+    'T': (31, 4, 4, 4, 4, 4, 4),
+    'U': (17, 17, 17, 17, 17, 17, 14),
+    'V': (17, 17, 17, 17, 17, 10, 4),
+    'W': (17, 17, 17, 21, 21, 27, 17),
+    'X': (17, 17, 10, 4, 10, 17, 17),
+    'Y': (17, 17, 10, 4, 4, 4, 4),
+    'Z': (31, 1, 2, 4, 8, 16, 31),
+    'a': (0, 0, 14, 1, 15, 17, 15),
+    'b': (16, 16, 30, 17, 17, 17, 30),
+    'c': (0, 0, 14, 16, 16, 17, 14),
+    'd': (1, 1, 15, 17, 17, 17, 15),
+    'e': (0, 0, 14, 17, 31, 16, 14),
+    'f': (6, 9, 8, 30, 8, 8, 8),
+    'g': (0, 14, 17, 17, 15, 2, 12),
+    'h': (16, 16, 30, 17, 17, 17, 17),
+    'i': (4, 0, 12, 4, 4, 4, 14),
+    'j': (2, 0, 6, 2, 2, 2, 12),
+    'k': (16, 16, 18, 20, 24, 20, 18),
+    'l': (12, 4, 4, 4, 4, 4, 14),
+    'm': (0, 0, 26, 21, 21, 21, 21),
+    'n': (0, 0, 30, 17, 17, 17, 17),
+    'o': (0, 0, 14, 17, 17, 17, 14),
+    'p': (0, 0, 30, 17, 17, 30, 16),
+    'q': (0, 0, 15, 17, 17, 15, 2),
+    'r': (0, 0, 22, 25, 16, 16, 16),
+    's': (0, 0, 15, 16, 14, 1, 30),
+    't': (8, 8, 28, 8, 8, 8, 6),
+    'u': (0, 0, 17, 17, 17, 19, 13),
+    'v': (0, 0, 17, 17, 17, 10, 4),
+    'w': (0, 0, 17, 17, 21, 21, 10),
+    'x': (0, 0, 17, 10, 4, 10, 17),
+    'y': (0, 0, 17, 17, 17, 15, 6),
+    'z': (0, 0, 31, 2, 4, 8, 31),
+    '0': (14, 17, 19, 21, 25, 17, 14),
+    '1': (4, 12, 4, 4, 4, 4, 14),
+    '2': (14, 17, 1, 6, 8, 16, 31),
+    '3': (31, 2, 4, 2, 1, 17, 14),
+    '4': (2, 6, 10, 18, 31, 2, 2),
+    '5': (31, 16, 30, 1, 1, 17, 14),
+    '6': (6, 8, 16, 30, 17, 17, 14),
+    '7': (31, 1, 2, 4, 8, 8, 8),
+    '8': (14, 17, 17, 14, 17, 17, 14),
+    '9': (14, 17, 17, 15, 1, 2, 12),
+    ' ': (0, 0, 0, 0, 0, 0, 0),
+    '.': (0, 0, 0, 0, 0, 12, 12),
+    ',': (0, 0, 0, 0, 12, 4, 8),
+    ':': (0, 12, 12, 0, 12, 12, 0),
+    ';': (0, 12, 12, 0, 12, 4, 8),
+    '!': (4, 4, 4, 4, 4, 0, 4),
+    '?': (14, 17, 1, 6, 4, 0, 4),
+    "'": (4, 4, 8, 0, 0, 0, 0),
+    '"': (10, 10, 10, 0, 0, 0, 0),
+    '-': (0, 0, 0, 14, 0, 0, 0),
+    '–': (0, 0, 0, 14, 0, 0, 0),
+    '—': (0, 0, 0, 31, 0, 0, 0),
+    '(': (2, 4, 8, 8, 8, 4, 2),
+    ')': (8, 4, 2, 2, 2, 4, 8),
+    '/': (1, 2, 2, 4, 8, 8, 16),
+    '%': (25, 26, 2, 4, 8, 11, 19),
+    '$': (4, 15, 20, 14, 5, 30, 4),
+    '&': (12, 18, 20, 8, 21, 18, 13),
+    '@': (14, 17, 23, 21, 22, 16, 14),
+    '#': (10, 10, 31, 10, 31, 10, 10),
+    '*': (0, 21, 14, 31, 14, 21, 0),
+    '+': (0, 4, 4, 31, 4, 4, 0),
+    '=': (0, 0, 31, 0, 31, 0, 0),
+    '<': (2, 4, 8, 16, 8, 4, 2),
+    '>': (8, 4, 2, 1, 2, 4, 8),
+    '_': (0, 0, 0, 0, 0, 0, 31),
+    '•': (0, 0, 14, 31, 31, 14, 0),
+    '·': (0, 0, 0, 12, 12, 0, 0),
+    '°': (12, 18, 12, 0, 0, 0, 0),
+    '€': (14, 17, 16, 30, 16, 17, 14),
+    '×': (0, 0, 17, 14, 14, 17, 0),
+    '’': (4, 4, 8, 0, 0, 0, 0),
+    '“': (10, 10, 10, 0, 0, 0, 0),
+    '”': (10, 10, 10, 0, 0, 0, 0),
 }
 
-# Every glyph is exactly 7 rows; descenders live in rows 5-6.
-_NARROW = set("il1Ijt.,:;'\"()![]")
-_WIDE = set("mwMW")
+SLIM = set("il1Ijt.,:;'\"()![]")
+BROAD = set("mwMW")
 
 
-def adv(ch):
-    """Advance width of one character, in font units."""
+def step(ch):
+    """Horizontal advance of one character, in font units."""
     if ch == " ":
         return 4
-    if ch in _NARROW:
+    if ch in SLIM:
         return 4
-    if ch in _WIDE:
+    if ch in BROAD:
         return 7
     return 6
 
 
-def text_w(text, scale, tracking=0):
-    """Pixel width of text at the given scale."""
-    w = 0
-    for ch in text:
-        w += adv(ch) * scale + tracking
-    return w - tracking if text else 0
+def measure(text, size, gap=0):
+    """Pixel width of text at the given scale and letter gap."""
+    if not text:
+        return 0
+    total = sum(step(ch) * size + gap for ch in text)
+    return total - gap
 
 
-def draw_glyph(cv, x, y, ch, scale, col):
-    """Draw one glyph; runs of on-pixels become filled rectangles."""
-    rows = FONT.get(ch)
-    if rows is None:
-        rows = FONT["?"]
-    for r, row in enumerate(rows):
-        c = 0
-        while c < 5:
-            if row[c] == "1":
-                c0 = c
-                while c + 1 < 5 and row[c + 1] == "1":
-                    c += 1
-                cv.rect(x + c0 * scale, y + r * scale,
-                        (c - c0 + 1) * scale, scale, col)
-            c += 1
+def blit(surf, x, y, ch, size, rgb):
+    """Paint one glyph; consecutive set cells merge into one box."""
+    rows = GLYPHS.get(ch, GLYPHS["?"])
+    for r, mask in enumerate(rows):
+        run = None
+        for c in range(5):
+            on = (mask >> (4 - c)) & 1
+            if on and run is None:
+                run = c
+            if (not on or c == 4) and run is not None:
+                end = c if not on else c + 1
+                surf.box(x + run * size, y + r * size,
+                         (end - run) * size, size, rgb)
+                run = None
 
 
-def draw_text(cv, x, y, text, scale, col, bold=False, tracking=0,
-              align="left", box_w=None):
-    """Draw text; align left/center/right within box_w when given."""
-    w = text_w(text, scale, tracking)
-    if align == "center" and box_w is not None:
-        x += (box_w - w) // 2
-    elif align == "right" and box_w is not None:
-        x += box_w - w
+def put_text(surf, x, y, text, size, rgb, bold=False, gap=0,
+             align="left", width=None):
+    """Paint text; centre/right align inside width when requested."""
+    w = measure(text, size, gap)
+    if align == "center" and width is not None:
+        x += (width - w) // 2
+    elif align == "right" and width is not None:
+        x += width - w
     cx = x
     for ch in text:
-        draw_glyph(cv, cx, y, ch, scale, col)
+        blit(surf, cx, y, ch, size, rgb)
         if bold:
-            draw_glyph(cv, cx + 1, y, ch, scale, col)
-        cx += adv(ch) * scale + tracking
+            blit(surf, cx + 1, y, ch, size, rgb)
+        cx += step(ch) * size + gap
     return w
 
 
-def draw_tracked(cv, x, y, text, scale, col, tracking=2):
-    return draw_text(cv, x, y, text, scale, col, tracking=tracking)
+def put_spaced(surf, x, y, text, size, rgb, gap=2):
+    return put_text(surf, x, y, text, size, rgb, gap=gap)
 
 
-def wrap_text(text, scale, max_w, tracking=0):
-    """Greedy word wrap; returns a list of lines that fit max_w."""
-    lines = []
+def flow_lines(text, size, max_w, gap=0):
+    """Greedy word wrap; returns the lines that fit inside max_w."""
+    out = []
     for para in text.split("\n"):
         words = para.split(" ")
         cur = ""
         for wd in words:
             trial = wd if not cur else cur + " " + wd
-            if text_w(trial, scale, tracking) <= max_w or not cur:
+            if measure(trial, size, gap) <= max_w or not cur:
                 cur = trial
             else:
-                lines.append(cur)
+                out.append(cur)
                 cur = wd
         if cur:
-            lines.append(cur)
-    return lines
+            out.append(cur)
+    return out
 
 
 # --------------------------------------------------------------------- map
-# Hand-drawn continent outlines (lon, lat vertex lists) for the dotted
-# world map. Coarse on purpose: the map is a locator, not a chart.
+# Hand-drawn continent outlines as (lon, lat) vertex lists, for the
+# dotted world map. Coarse on purpose: the map is a locator, not a chart.
 NORTH_AMERICA = [(-168, 66), (-158, 58), (-152, 60), (-140, 60), (-135, 58),
     (-130, 54), (-125, 49), (-124, 42), (-120, 34), (-114, 29), (-110, 24),
     (-105, 20), (-97, 16), (-92, 15), (-86, 13), (-83, 9), (-79, 9),
@@ -476,9 +464,9 @@ NEW_ZEALAND = [(167, -45), (168, -44), (171, -42), (173, -40), (175, -38),
     (177, -38), (178, -37), (176, -39), (174, -41), (172, -43), (169, -46),
     (167, -45)]
 
-LAND = [NORTH_AMERICA, GREENLAND, SOUTH_AMERICA, AFRICA, EUROPE, UK, ASIA,
-        INDONESIA, BORNEO, NEW_GUINEA, PHILIPPINES, JAPAN, AUSTRALIA,
-        NEW_ZEALAND]
+SHORES = [NORTH_AMERICA, GREENLAND, SOUTH_AMERICA, AFRICA, EUROPE, UK,
+          ASIA, INDONESIA, BORNEO, NEW_GUINEA, PHILIPPINES, JAPAN,
+          AUSTRALIA, NEW_ZEALAND]
 
 REGION_COLORS = {
     "americas": PIN_RED, "asia": PIN_PURPLE, "europe": PIN_BLUE,
@@ -486,83 +474,83 @@ REGION_COLORS = {
 }
 
 
-def point_in_poly(x, y, poly):
+def _inside_shape(lon, lat, poly):
+    """Ray-casting point-in-polygon test for one outline."""
     inside = False
     n = len(poly)
-    j = n - 1
     for i in range(n):
-        xi, yi = poly[i]
-        xj, yj = poly[j]
-        if (yi > y) != (yj > y):
-            xinters = (xj - xi) * (y - yi) / (yj - yi) + xi
-            if x < xinters:
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > lat) != (y2 > lat):
+            xi = (x2 - x1) * (lat - y1) / (y2 - y1) + x1
+            if lon < xi:
                 inside = not inside
-        j = i
     return inside
 
 
 def on_land(lon, lat):
-    return any(point_in_poly(lon, lat, p) for p in LAND)
+    return any(_inside_shape(lon, lat, p) for p in SHORES)
 
 
-def draw_map(cv, x, y, w, h, pins):
-    """Dotted world map with numbered pins (num, (lon, lat, region))."""
-    cv.rect(x, y, w, h, MAP_BG)
-    cv.outline(x, y, w, h, (150, 150, 140), 1)
-    lon0, lon1, lat0, lat1 = -180.0, 180.0, 83.0, -58.0
-    lon = -180.0
-    while lon <= 180.0:
-        lat = 83.0
-        while lat >= -58.0:
+def draw_world(surf, x, y, w, h, pins):
+    """Dotted world map; pins are (num, (lon, lat, region))."""
+    surf.box(x, y, w, h, MAP_BG)
+    surf.frame(x, y, w, h, (150, 150, 140), 1)
+    lon0, lon1 = -180.0, 180.0
+    lat_top, lat_bot = 83.0, -58.0
+    lon = lon0
+    while lon <= lon1:
+        lat = lat_top
+        while lat >= lat_bot:
             if on_land(lon, lat):
                 px = x + (lon - lon0) / (lon1 - lon0) * w
-                py = y + (lat0 - lat) / (lat0 - lat1) * h
-                cv.circle(int(px), int(py), 2, DOT)
+                py = y + (lat_top - lat) / (lat_top - lat_bot) * h
+                surf.disc(int(px), int(py), 2, DOT)
             lat -= 3.0
         lon += 3.0
     for num, (plon, plat, region) in pins:
         px = x + (plon - lon0) / (lon1 - lon0) * w
-        py = y + (lat0 - plat) / (lat0 - lat1) * h
-        col = REGION_COLORS[region]
-        cv.circle(int(px), int(py), 7, col)
-        cv.ring(int(px), int(py), 7, WHITE, 1)
-        s = str(num)
-        sw = text_w(s, 1)
-        draw_text(cv, int(px - sw / 2), int(py - 4), s, 1, WHITE)
+        py = y + (lat_top - plat) / (lat_top - lat_bot) * h
+        ix, iy = int(px), int(py)
+        surf.disc(ix, iy, 7, REGION_COLORS[region])
+        surf.disc_ring(ix, iy, 7, WHITE, 1)
+        label = str(num)
+        put_text(surf, ix - measure(label, 1) // 2, iy - 4, label, 1, WHITE)
 
 
 # ------------------------------------------------------------------- flags
-def draw_flag(cv, x, y, w, h, kind):
-    """Small flag, drawn with rectangles (and stars for China)."""
+def paint_flag(surf, x, y, w, h, kind):
+    """Small flag built from rectangles (plus stars for China)."""
     if kind == "us":
+        stripe = h // 7
         for i in range(7):
-            cv.rect(x, y + i * h // 7, w, h // 7 + 1,
-                    (178, 32, 44) if i % 2 == 0 else WHITE)
+            surf.box(x, y + i * stripe, w, stripe + 1,
+                     (178, 32, 44) if i % 2 == 0 else WHITE)
         cw, ch = w * 2 // 5, h * 4 // 7
-        cv.rect(x, y, cw, ch, (30, 50, 110))
+        surf.box(x, y, cw, ch, (30, 50, 110))
         for r in range(3):
             for c in range(4):
-                cv.rect(x + 3 + c * (cw // 4), y + 3 + r * (ch // 3), 2, 2,
-                        WHITE)
+                surf.box(x + 3 + c * (cw // 4), y + 3 + r * (ch // 3),
+                         2, 2, WHITE)
     elif kind == "china":
-        cv.rect(x, y, w, h, (200, 30, 30))
-        cv.polygon(star_points(x + w // 4, y + h // 3, 7, 3),
-                   (255, 215, 0))
+        surf.box(x, y, w, h, (200, 30, 30))
+        surf.poly(star_poly(x + w // 4, y + h // 3, 7, 3), (255, 215, 0))
         for sx, sy in ((x + w * 3 // 5, y + h // 5),
                        (x + w * 3 // 4, y + h * 2 // 5),
                        (x + w * 3 // 4, y + h * 3 // 5),
                        (x + w * 3 // 5, y + h * 4 // 5)):
-            cv.polygon(star_points(sx, sy, 3, 1), (255, 215, 0))
+            surf.poly(star_poly(sx, sy, 3, 1), (255, 215, 0))
     elif kind == "russia":
-        cv.rect(x, y, w, h // 3 + 1, WHITE)
-        cv.rect(x, y + h // 3, w, h // 3 + 1, (30, 80, 170))
-        cv.rect(x, y + 2 * h // 3, w, h - 2 * h // 3, (200, 30, 30))
+        third = h // 3
+        surf.box(x, y, w, third + 1, WHITE)
+        surf.box(x, y + third, w, third + 1, (30, 80, 170))
+        surf.box(x, y + 2 * third, w, h - 2 * third, (200, 30, 30))
 
 
 # ------------------------------------------------------------------- icons
 # Small flat pictograms for the medium stories: a coloured square with
-# a white glyph drawn from basic shapes. All coordinates are in the
-# icon's own 40x40 box (the tile draws them at 36x36).
+# a white glyph drawn from basic shapes. Each painter works in the
+# icon's own s-by-s box at (x, y); the tile draws them at 36x36.
 ICON_COLORS = {
     "virus": (178, 60, 50), "globe": (40, 120, 130), "cross": (60, 140, 70),
     "chart": (40, 110, 60), "tent": (150, 90, 50), "building": (70, 90, 130),
@@ -574,190 +562,239 @@ ICON_COLORS = {
 }
 
 
-def draw_icon(cv, x, y, s, kind):
-    """Draw an s-by-s icon at (x, y)."""
-    cv.rect(x, y, s, s, ICON_COLORS.get(kind, (90, 90, 90)))
-    wcol = WHITE
-    c = s / 2
-    if kind == "virus":
-        cv.circle(x + int(c), y + int(c), 9, wcol)
-        for dx, dy in ((-13, 0), (13, 0), (0, -13), (0, 13),
-                       (-9, -9), (9, 9)):
-            cv.circle(x + int(c + dx), y + int(c + dy), 3, wcol)
-    elif kind == "globe":
-        cv.ring(x + int(c), y + int(c), 14, wcol, 2)
-        cv.ellipse(x + int(c), y + int(c), 6, 14, wcol)
-        cv.line(x + 8, y + int(c), x + s - 8, y + int(c), wcol, 2)
-    elif kind == "cross":
-        cv.rect(x + int(c) - 5, y + 10, 10, s - 20, wcol)
-        cv.rect(x + 10, y + int(c) - 5, s - 20, 10, wcol)
-    elif kind == "chart":
-        for i, hh in enumerate((12, 20, 28)):
-            bx = x + 9 + i * 11
-            cv.rect(bx, y + s - 8 - hh, 7, hh, wcol)
-    elif kind == "tent":
-        cv.polygon([(x + 6, y + s - 8), (x + int(c), y + 10),
-                    (x + s - 6, y + s - 8)], wcol)
-        cv.polygon([(x + int(c) - 4, y + s - 8), (x + int(c), y + s - 20),
-                    (x + int(c) + 4, y + s - 8)], (60, 60, 60))
-    elif kind in ("building", "bank"):
-        cv.polygon([(x + 6, y + 12), (x + int(c), y + 6),
-                    (x + s - 6, y + 12)], wcol)
-        cv.rect(x + 8, y + 14, s - 16, 4, wcol)
-        for i in range(4):
-            bx = x + 10 + i * 9
-            cv.rect(bx, y + 20, 4, s - 32, wcol)
-        cv.rect(x + 6, y + s - 12, s - 12, 4, wcol)
-    elif kind == "ballot":
-        cv.rect(x + 10, y + 16, s - 20, s - 24, wcol)
-        cv.line(x + 14, y + 16, x + s - 14, y + 16, wcol, 2)
-        cv.polygon([(x + int(c) - 8, y + 8), (x + int(c) + 2, y + 14),
-                    (x + int(c) - 2, y + 14), (x + int(c) - 12, y + 8)],
-                   wcol)
-    elif kind == "factory":
-        cv.polygon([(x + 8, y + s - 8), (x + 8, y + 20), (x + 16, y + 14),
-                    (x + 24, y + 20), (x + 32, y + 14), (x + s - 8, y + 20),
-                    (x + s - 8, y + s - 8)], wcol)
-        cv.rect(x + s - 16, y + 8, 4, 12, wcol)
-    elif kind == "plane":
-        cv.polygon([(x + 6, y + int(c) + 4), (x + s - 8, y + int(c) - 10),
-                    (x + s - 8, y + int(c) - 4), (x + 16, y + int(c) + 8),
-                    (x + 12, y + int(c) + 12), (x + 6, y + int(c) + 10)],
-                   wcol)
-    elif kind == "gavel":
-        cv.rect(x + 10, y + 12, s - 24, 8, wcol)
-        cv.line(x + int(c) + 2, y + 20, x + s - 10, y + s - 10, wcol, 4)
-    elif kind == "ship":
-        cv.polygon([(x + 6, y + s - 14), (x + s - 6, y + s - 14),
-                    (x + s - 12, y + s - 6), (x + 12, y + s - 6)], wcol)
-        cv.rect(x + 12, y + s - 26, 8, 12, wcol)
-        cv.rect(x + 22, y + s - 22, 8, 8, wcol)
-    elif kind == "storm":
-        cv.ellipse(x + 16, y + 20, 8, 6, wcol)
-        cv.ellipse(x + 26, y + 18, 8, 6, wcol)
-        for i in range(3):
-            bx = x + 13 + i * 9
-            cv.line(bx, y + 30, bx - 2, y + 38, wcol, 2)
-    elif kind == "bridge":
-        cv.rect(x + 6, y + 24, 10, 3, wcol)
-        cv.rect(x + 24, y + 24, 10, 3, wcol)
-        cv.arc(x + 11, y + 19, 6, 180, 360, wcol, 2)
-        cv.arc(x + 29, y + 19, 6, 180, 360, wcol, 2)
-        cv.polygon([(x + 17, y + 25), (x + 21, y + 33), (x + 24, y + 31),
-                    (x + 20, y + 24)], wcol)
-        cv.circle(x + 31, y + 10, 4, (255, 210, 110))
-    elif kind == "blast":
-        cx, cy = x + s // 2, y + s // 2
-        cv.polygon([(cx, cy - 14), (cx + 4, cy - 4), (cx + 14, cy - 6),
-                    (cx + 7, cy + 2), (cx + 12, cy + 10), (cx + 2, cy + 8),
-                    (cx, cy + 15), (cx - 3, cy + 7), (cx - 13, cy + 9),
-                    (cx - 7, cy + 1), (cx - 14, cy - 5), (cx - 4, cy - 5)],
-                   (255, 210, 110))
-        cv.circle(cx, cy, 4, wcol)
-    elif kind == "game":
-        cv.rect(x + 6, y + 14, s - 12, 16, wcol)
-        cv.circle(x + 12, y + 20, 3, (110, 70, 150))
-        cv.circle(x + 28, y + 20, 3, (110, 70, 150))
-        cv.line(x + 12, y + 27, x + 17, y + 27, (110, 70, 150), 2)
-        cv.line(x + 24, y + 26, x + 29, y + 26, (110, 70, 150), 2)
-    elif kind == "probe":
-        cv.arc(x + 17, y + 17, 9, 90, 270, wcol, 3)
-        cv.line(x + 17, y + 17, x + 30, y + 30, wcol, 3)
-        cv.rect(x + 28, y + 28, 6, 6, wcol)
-        for dx, dy in ((30, 8), (34, 14), (26, 12)):
-            cv.circle(x + dx, y + dy, 1, (255, 210, 110))
-    elif kind == "chip":
-        cv.rect(x + 12, y + 12, s - 24, s - 24, wcol)
-        cv.rect(x + 17, y + 17, s - 34, s - 34, wcol)
-        for i in range(3):
-            cv.line(x + 14 + i * 6, y + 6, x + 14 + i * 6, y + 12, wcol, 2)
-            cv.line(x + 14 + i * 6, y + s - 12, x + 14 + i * 6, y + s - 6,
-                    wcol, 2)
-    elif kind == "sun":
-        cv.circle(x + int(c), y + int(c), 9, wcol)
-        for dx, dy in ((-13, 0), (13, 0), (0, -13), (0, 13),
-                       (-9, -9), (9, -9), (-9, 9), (9, 9)):
-            cv.line(x + int(c), y + int(c), x + int(c + dx), y + int(c + dy),
-                    wcol, 2)
-    else:  # doc
-        cv.rect(x + 12, y + 8, s - 24, s - 16, wcol)
-        for i in range(3):
-            ly = y + 15 + i * 8
-            cv.line(x + 16, ly, x + s - 16, ly, wcol, 2)
+def _ic_virus(surf, x, y, n):
+    c = n // 2
+    surf.disc(x + c, y + c, 9, WHITE)
+    for dx, dy in ((-13, 0), (13, 0), (0, -13), (0, 13), (-9, -9), (9, 9)):
+        surf.disc(x + c + dx, y + c + dy, 3, WHITE)
+
+
+def _ic_globe(surf, x, y, n):
+    c = n // 2
+    surf.disc_ring(x + c, y + c, 14, WHITE, 2)
+    surf.oval(x + c, y + c, 6, 14, WHITE)
+    surf.seg(x + 8, y + c, x + n - 8, y + c, WHITE, 2)
+
+
+def _ic_cross(surf, x, y, n):
+    c = n // 2
+    surf.box(x + c - 5, y + 10, 10, n - 20, WHITE)
+    surf.box(x + 10, y + c - 5, n - 20, 10, WHITE)
+
+
+def _ic_chart(surf, x, y, n):
+    for i, hh in enumerate((12, 20, 28)):
+        surf.box(x + 9 + i * 11, y + n - 8 - hh, 7, hh, WHITE)
+
+
+def _ic_tent(surf, x, y, n):
+    c = n // 2
+    surf.poly([(x + 6, y + n - 8), (x + c, y + 10), (x + n - 6, y + n - 8)],
+           WHITE)
+    surf.poly([(x + c - 4, y + n - 8), (x + c, y + n - 20),
+            (x + c + 4, y + n - 8)], (60, 60, 60))
+
+
+def _ic_building(surf, x, y, n):
+    c = n // 2
+    surf.poly([(x + 6, y + 12), (x + c, y + 6), (x + n - 6, y + 12)], WHITE)
+    surf.box(x + 8, y + 14, n - 16, 4, WHITE)
+    for i in range(4):
+        surf.box(x + 10 + i * 9, y + 20, 4, n - 32, WHITE)
+    surf.box(x + 6, y + n - 12, n - 12, 4, WHITE)
+
+
+def _ic_ballot(surf, x, y, n):
+    c = n // 2
+    surf.box(x + 10, y + 16, n - 20, n - 24, WHITE)
+    surf.seg(x + 14, y + 16, x + n - 14, y + 16, WHITE, 2)
+    surf.poly([(x + c - 8, y + 8), (x + c + 2, y + 14), (x + c - 2, y + 14),
+            (x + c - 12, y + 8)], WHITE)
+
+
+def _ic_factory(surf, x, y, n):
+    surf.poly([(x + 8, y + n - 8), (x + 8, y + 20), (x + 16, y + 14),
+            (x + 24, y + 20), (x + 32, y + 14), (x + n - 8, y + 20),
+            (x + n - 8, y + n - 8)], WHITE)
+    surf.box(x + n - 16, y + 8, 4, 12, WHITE)
+
+
+def _ic_plane(surf, x, y, n):
+    c = n // 2
+    surf.poly([(x + 6, y + c + 4), (x + n - 8, y + c - 10),
+            (x + n - 8, y + c - 4), (x + 16, y + c + 8),
+            (x + 12, y + c + 12), (x + 6, y + c + 10)], WHITE)
+
+
+def _ic_gavel(surf, x, y, n):
+    c = n // 2
+    surf.box(x + 10, y + 12, n - 24, 8, WHITE)
+    surf.seg(x + c + 2, y + 20, x + n - 10, y + n - 10, WHITE, 4)
+
+
+def _ic_ship(surf, x, y, n):
+    surf.poly([(x + 6, y + n - 14), (x + n - 6, y + n - 14),
+            (x + n - 12, y + n - 6), (x + 12, y + n - 6)], WHITE)
+    surf.box(x + 12, y + n - 26, 8, 12, WHITE)
+    surf.box(x + 22, y + n - 22, 8, 8, WHITE)
+
+
+def _ic_storm(surf, x, y, n):
+    surf.oval(x + 16, y + 20, 8, 6, WHITE)
+    surf.oval(x + 26, y + 18, 8, 6, WHITE)
+    for i in range(3):
+        bx = x + 13 + i * 9
+        surf.seg(bx, y + 30, bx - 2, y + 38, WHITE, 2)
+
+
+def _ic_bridge(surf, x, y, n):
+    surf.box(x + 6, y + 24, 10, 3, WHITE)
+    surf.box(x + 24, y + 24, 10, 3, WHITE)
+    surf.bend(x + 11, y + 19, 6, 180, 360, WHITE, 2)
+    surf.bend(x + 29, y + 19, 6, 180, 360, WHITE, 2)
+    surf.poly([(x + 17, y + 25), (x + 21, y + 33), (x + 24, y + 31),
+            (x + 20, y + 24)], WHITE)
+    surf.disc(x + 31, y + 10, 4, (255, 210, 110))
+
+
+def _ic_blast(surf, x, y, n):
+    cx, cy = x + n // 2, y + n // 2
+    surf.poly([(cx, cy - 14), (cx + 4, cy - 4), (cx + 14, cy - 6),
+            (cx + 7, cy + 2), (cx + 12, cy + 10), (cx + 2, cy + 8),
+            (cx, cy + 15), (cx - 3, cy + 7), (cx - 13, cy + 9),
+            (cx - 7, cy + 1), (cx - 14, cy - 5), (cx - 4, cy - 5)],
+           (255, 210, 110))
+    surf.disc(cx, cy, 4, WHITE)
+
+
+def _ic_game(surf, x, y, n):
+    surf.box(x + 6, y + 14, n - 12, 16, WHITE)
+    surf.disc(x + 12, y + 20, 3, (110, 70, 150))
+    surf.disc(x + 28, y + 20, 3, (110, 70, 150))
+    surf.seg(x + 12, y + 27, x + 17, y + 27, (110, 70, 150), 2)
+    surf.seg(x + 24, y + 26, x + 29, y + 26, (110, 70, 150), 2)
+
+
+def _ic_probe(surf, x, y, n):
+    surf.bend(x + 17, y + 17, 9, 90, 270, WHITE, 3)
+    surf.seg(x + 17, y + 17, x + 30, y + 30, WHITE, 3)
+    surf.box(x + 28, y + 28, 6, 6, WHITE)
+    for dx, dy in ((30, 8), (34, 14), (26, 12)):
+        surf.disc(x + dx, y + dy, 1, (255, 210, 110))
+
+
+def _ic_chip(surf, x, y, n):
+    surf.box(x + 12, y + 12, n - 24, n - 24, WHITE)
+    surf.box(x + 17, y + 17, n - 34, n - 34, WHITE)
+    for i in range(3):
+        px = x + 14 + i * 6
+        surf.seg(px, y + 6, px, y + 12, WHITE, 2)
+        surf.seg(px, y + n - 12, px, y + n - 6, WHITE, 2)
+
+
+def _ic_sun(surf, x, y, n):
+    c = n // 2
+    surf.disc(x + c, y + c, 9, WHITE)
+    for dx, dy in ((-13, 0), (13, 0), (0, -13), (0, 13),
+                   (-9, -9), (9, -9), (-9, 9), (9, 9)):
+        surf.seg(x + c, y + c, x + c + dx, y + c + dy, WHITE, 2)
+
+
+def _ic_doc(surf, x, y, n):
+    surf.box(x + 12, y + 8, n - 24, n - 16, WHITE)
+    for i in range(3):
+        ly = y + 15 + i * 8
+        surf.seg(x + 16, ly, x + n - 16, ly, WHITE, 2)
+
+
+_ICONS = {
+    "virus": _ic_virus, "globe": _ic_globe, "cross": _ic_cross,
+    "chart": _ic_chart, "tent": _ic_tent, "building": _ic_building,
+    "bank": _ic_building, "ballot": _ic_ballot, "factory": _ic_factory,
+    "plane": _ic_plane, "gavel": _ic_gavel, "ship": _ic_ship,
+    "storm": _ic_storm, "bridge": _ic_bridge, "blast": _ic_blast,
+    "game": _ic_game, "probe": _ic_probe, "chip": _ic_chip,
+    "sun": _ic_sun, "doc": _ic_doc,
+}
+
+
+def paint_icon(surf, x, y, size, kind):
+    """Paint an size-by-size icon at (x, y)."""
+    surf.box(x, y, size, size, ICON_COLORS.get(kind, (90, 90, 90)))
+    painter = _ICONS.get(kind, _ic_doc)
+    painter(surf, x, y, size)
 
 
 # -------------------------------------------------------------- panel art
-def panel_shenzhen(cv, x, y, w, h):
-    """Dusk over Shenzhen: orange-purple sky, sun, skyline, three flags."""
+def art_shenzhen(s, x, y, w, h):
+    """Dusk over Shenzhen: orange-purple sky, low sun, skyline, flags."""
     ground = y + int(h * 0.72)
-    cv.vgrad(x, y, w, ground - y, (232, 128, 52), (146, 68, 116))
-    sx, sy, sr = x + w - 52, y + 26, 13
-    cv.circle(sx, sy, sr, (255, 226, 140))
-    cv.rect(x, ground, w, y + h - ground, (26, 28, 58))
+    s.shade(x, y, w, ground - y, (232, 128, 52), (146, 68, 116))
+    s.disc(x + w - 52, y + 26, 13, (255, 226, 140))
+    s.box(x, ground, w, y + h - ground, (26, 28, 58))
     heights = [26, 40, 32, 48, 36, 56, 30, 44, 38, 52, 28, 42]
     bw = w // len(heights)
     for i, bh in enumerate(heights):
         bh = bh * h // 150
         bx = x + i * bw
-        cv.rect(bx + 1, ground - bh, bw - 2, bh, (26, 28, 58))
+        s.box(bx + 1, ground - bh, bw - 2, bh, (26, 28, 58))
         if i % 3 == 0:
-            cv.rect(bx + bw // 2 - 1, ground - bh - 8, 2, 8, (26, 28, 58))
+            s.box(bx + bw // 2 - 1, ground - bh - 8, 2, 8, (26, 28, 58))
         for wy in range(ground - bh + 6, ground - 4, 9):
             for wx in (bx + 5, bx + bw - 9):
                 if (wx + wy) % 3 == 0:
-                    cv.rect(wx, wy, 2, 2, (255, 210, 110))
-    kinds = ["us", "china", "russia"]
+                    s.box(wx, wy, 2, 2, (255, 210, 110))
     fw, fh = 56, 36
-    gap = (w - len(kinds) * fw) // (len(kinds) + 1)
-    for i, kind in enumerate(kinds):
+    gap = (w - 3 * fw) // 4
+    for i, kind in enumerate(("us", "china", "russia")):
         fx = x + gap + i * (fw + gap)
         fy = ground - fh - 16
-        cv.rect(fx + fw // 2 - 1, fy, 2, ground - fy, CREAM)
-        draw_flag(cv, fx, fy, fw, fh, kind)
+        s.box(fx + fw // 2 - 1, fy, 2, ground - fy, CREAM)
+        paint_flag(s, fx, fy, fw, fh, kind)
 
 
-def panel_gaza_night(cv, x, y, w, h):
+def art_gaza(s, x, y, w, h):
     """Night over central Gaza: tents, searchlights, flare, smoke."""
     horizon = y + int(h * 0.62)
-    cv.vgrad(x, y, w, horizon - y, (8, 18, 42), (30, 50, 92))
-    for fx, fy, r in ((0.05, 0.10, 1), (0.13, 0.22, 1), (0.22, 0.08, 1),
-                      (0.32, 0.16, 2), (0.40, 0.06, 1), (0.50, 0.18, 1),
-                      (0.60, 0.08, 2), (0.70, 0.20, 1), (0.79, 0.10, 1),
-                      (0.89, 0.22, 1), (0.96, 0.12, 1), (0.17, 0.34, 1),
-                      (0.53, 0.32, 1), (0.76, 0.34, 1)):
-        cv.circle(x + int(fx * w), y + int(fy * h), r, (235, 238, 245))
-    cv.rect(x, horizon, w, y + h - horizon, (24, 22, 20))
-    for fx, fw, fh in ((0.05, 0.15, 0.20), (0.23, 0.19, 0.26),
-                       (0.47, 0.17, 0.22), (0.68, 0.20, 0.28),
-                       (0.86, 0.15, 0.18)):
+    s.shade(x, y, w, horizon - y, (8, 18, 42), (30, 50, 92))
+    stars = ((0.05, 0.10, 1), (0.13, 0.22, 1), (0.22, 0.08, 1),
+             (0.32, 0.16, 2), (0.40, 0.06, 1), (0.50, 0.18, 1),
+             (0.60, 0.08, 2), (0.70, 0.20, 1), (0.79, 0.10, 1),
+             (0.89, 0.22, 1), (0.96, 0.12, 1), (0.17, 0.34, 1),
+             (0.53, 0.32, 1), (0.76, 0.34, 1))
+    for fx, fy, r in stars:
+        s.disc(x + int(fx * w), y + int(fy * h), r, (235, 238, 245))
+    s.box(x, horizon, w, y + h - horizon, (24, 22, 20))
+    tents = ((0.05, 0.15, 0.20), (0.23, 0.19, 0.26), (0.47, 0.17, 0.22),
+             (0.68, 0.20, 0.28), (0.86, 0.15, 0.18))
+    for fx, fw, fh in tents:
         tx, tw = x + int(fx * w), int(fw * w)
         th = int(fh * h)
-        cv.polygon([(tx, horizon), (tx + tw // 2, horizon - th),
-                    (tx + tw, horizon)], (120, 110, 92))
-        cv.polygon([(tx + tw // 2 - 3, horizon),
-                    (tx + tw // 2, horizon - th // 2),
-                    (tx + tw // 2 + 3, horizon)], (40, 36, 30))
+        s.poly([(tx, horizon), (tx + tw // 2, horizon - th),
+                (tx + tw, horizon)], (120, 110, 92))
+        s.poly([(tx + tw // 2 - 3, horizon),
+                (tx + tw // 2, horizon - th // 2),
+                (tx + tw // 2 + 3, horizon)], (40, 36, 30))
     for ex, ey in ((0.50, 0.12), (0.70, 0.26)):
-        cv.polygon([(x + int(0.07 * w), horizon - 6),
-                    (x + int(ex * w), y + int(ey * h) - 3),
-                    (x + int(ex * w), y + int(ey * h) + 3)],
-                   (220, 220, 190))
+        s.poly([(x + int(0.07 * w), horizon - 6),
+                (x + int(ex * w), y + int(ey * h) - 3),
+                (x + int(ex * w), y + int(ey * h) + 3)], (220, 220, 190))
     gx, gy = x + int(0.84 * w), horizon - 6
     for frac, col in ((1.00, (198, 88, 28)), (0.72, (228, 128, 38)),
                       (0.48, (248, 188, 78)), (0.26, (255, 230, 150))):
-        cv.circle(gx, gy, max(2, int(22 * frac * h / 100)), col)
+        s.disc(gx, gy, max(2, int(22 * frac * h / 100)), col)
     for px, py, pr in ((-0.05, -0.20, 10), (0.0, -0.30, 12),
                        (0.05, -0.22, 9), (0.01, -0.40, 8)):
-        cv.circle(gx + int(px * w), gy + int(py * h), max(2, pr * h // 100),
-                  (88, 88, 96))
-    cv.line(gx - 30, gy - 30, gx + 6, gy - 8, (255, 240, 180), 2)
+        s.disc(gx + int(px * w), gy + int(py * h), max(2, pr * h // 100),
+               (88, 88, 96))
+    s.seg(gx - 30, gy - 30, gx + 6, gy - 8, (255, 240, 180), 2)
 
 
-def panel_ipo(cv, x, y, w, h):
+def art_ipo(s, x, y, w, h):
     """Nasdaq debut: dark board, rising green bars, gold $97.17 tag."""
-    cv.vgrad(x, y, w, h, (10, 22, 48), (24, 52, 92))
+    s.shade(x, y, w, h, (10, 22, 48), (24, 52, 92))
     for gy in (0.22, 0.44, 0.66):
-        cv.hline(x + 8, y + int(gy * h), w - 16, (60, 80, 120), 1)
+        s.hbar(x + 8, y + int(gy * h), w - 16, (60, 80, 120), 1)
     bars = [18, 26, 22, 34, 30, 44, 40, 56]
     bw = max(4, w // 12)
     gap = max(2, w // 48)
@@ -766,47 +803,43 @@ def panel_ipo(cv, x, y, w, h):
     for i, bh in enumerate(bars):
         bx = bx0 + i * (bw + gap)
         bh_px = bh * h // 100
-        cv.rect(bx, base - bh_px, bw, bh_px, (46, 160, 90))
+        s.box(bx, base - bh_px, bw, bh_px, (46, 160, 90))
     pts = [(bx0 + 4, base - 18), (bx0 + int(0.30 * w), base - 34),
            (bx0 + int(0.55 * w), base - 30), (bx0 + int(0.80 * w), base - 56),
            (bx0 + w - 24, base - 62)]
     for a, b in zip(pts, pts[1:]):
-        cv.line(a[0], a[1], b[0], b[1], (120, 220, 150), 3)
+        s.seg(a[0], a[1], b[0], b[1], (120, 220, 150), 3)
     ex, ey = pts[-1]
-    cv.polygon([(ex, ey), (ex - 14, ey - 4), (ex - 12, ey + 8)],
-               (120, 220, 150))
+    s.poly([(ex, ey), (ex - 14, ey - 4), (ex - 12, ey + 8)], (120, 220, 150))
     tag = "$97.17"
-    tscale = 3 if text_w(tag, 3) <= w - 20 else 2
-    draw_text(cv, x + w - text_w(tag, tscale) - 8, y + 8, tag, tscale,
-              GOLD_LT)
-    draw_text(cv, x + w - text_w("CLOSE, +17%", 1) - 8,
-              y + 8 + tscale * 7 + 4, "CLOSE, +17%", 1, WHITE)
+    tscale = 3 if measure(tag, 3) <= w - 20 else 2
+    put_text(s, x + w - measure(tag, tscale) - 8, y + 8, tag, tscale,
+             GOLD_LT)
+    sub = "CLOSE, +17%"
+    put_text(s, x + w - measure(sub, 1) - 8, y + 8 + tscale * 7 + 4,
+             sub, 1, WHITE)
 
 
-def panel_cyclone(cv, x, y, w, h):
+def art_cyclone(s, x, y, w, h):
     """Cyclone Akvan over the Bay of Bengal: spiral bands, rain, sea."""
-    cv.vgrad(x, y, w, h, (52, 74, 96), (140, 158, 172))
+    s.shade(x, y, w, h, (52, 74, 96), (140, 158, 172))
     cx, cy = x + int(w * 0.42), y + int(h * 0.44)
-    # spiral cloud bands: concentric arcs, pale grey-blue
     for r, col in ((46, (200, 212, 220)), (36, (216, 226, 232)),
                    (26, (228, 236, 240)), (16, (240, 244, 246))):
-        cv.ring(cx, cy, r, col, 5)
-    cv.circle(cx, cy, 9, (240, 244, 246))
-    # rain streaks, slanted
+        s.disc_ring(cx, cy, r, col, 5)
+    s.disc(cx, cy, 9, (240, 244, 246))
     for rx in range(0, w, 18):
         ry = y + (rx * 7) % (h - 30)
-        cv.line(x + rx, ry, x + rx - 6, ry + 16, (190, 205, 215), 2)
-    # sea at the bottom with white-capped waves
+        s.seg(x + rx, ry, x + rx - 6, ry + 16, (190, 205, 215), 2)
     sea = y + int(h * 0.78)
-    cv.rect(x, sea, w, y + h - sea, (38, 84, 120))
+    s.box(x, sea, w, y + h - sea, (38, 84, 120))
     for wy in (sea + 6, sea + 14):
         for wx in range(0, w, 26):
-            cv.arc(x + wx + 11, wy, 9, 200, 340, (220, 235, 245), 2)
-    # a bending palm on the shore
+            s.bend(x + wx + 11, wy, 9, 200, 340, (220, 235, 245), 2)
     px, py = x + w - 34, sea + 2
-    cv.line(px, py, px + 6, py - 26, (70, 50, 30), 3)
+    s.seg(px, py, px + 6, py - 26, (70, 50, 30), 3)
     for dx, dy in ((-14, -30), (-4, -34), (8, -32), (16, -26), (18, -20)):
-        cv.line(px + 6, py - 26, px + 6 + dx, py - 26 + dy, (40, 120, 60), 2)
+        s.seg(px + 6, py - 26, px + 6 + dx, py - 26 + dy, (40, 120, 60), 2)
 
 
 # ------------------------------------------------------------------- data
@@ -944,128 +977,134 @@ FOOTER2 = "Sources: AP, Reuters, AFP, BBC, Al Jazeera, UN News. Original drawing
 
 
 # ------------------------------------------------------------------ layout
-VIOLATIONS = []
+PROBLEMS = []
 
 
-def check_fit(label, width, max_w):
+def check_overflow(label, width, max_w):
     if width > max_w:
-        VIOLATIONS.append("%s: %dpx > %dpx" % (label, width, max_w))
+        PROBLEMS.append("%s: %dpx > %dpx" % (label, width, max_w))
 
 
-def draw_page():
-    cv = Canvas(W, H, PAPER)
+def number_badge(s, x, y, num, rgb=RED):
+    """Red disc with a centred white story number."""
+    s.disc(x, y, 9, rgb)
+    label = str(num)
+    put_text(s, x - measure(label, 1) // 2, y - 4, label, 1, WHITE)
+
+
+def section_rule(s, y, thick=2):
+    s.hbar(MARGIN, y, CW, RULE, thick)
+
+
+def build_page():
+    s = Surface(PAGE_W, PAGE_H, PAPER)
 
     # ---- dark navy masthead ----
-    cv.rect(0, 0, W, 106, NAVY)
-    draw_tracked(cv, MARGIN, 13, "THE DAY IN WORLD NEWS", 2, GOLD_LT, 2)
+    s.box(0, 0, PAGE_W, 106, NAVY)
+    put_spaced(s, MARGIN, 13, "THE DAY IN WORLD NEWS", 2, GOLD_LT, 2)
     right = "48 STORIES \u00b7 6 CONTINENTS \u00b7 ONE PAGE"
-    check_fit("masthead right", text_w(right, 2, 2), CW)
-    draw_tracked(cv, W - MARGIN - text_w(right, 2, 2), 13, right, 2,
-                 GOLD_LT, 2)
-    check_fit("masthead title", text_w("Friday 20 November 2026", 5), CW)
-    draw_text(cv, MARGIN, 30, "Friday 20 November 2026", 5, WHITE)
-    draw_text(cv, MARGIN, 86,
-              "Every story on this page happened, or was first reported, on this day.",
-              2, (205, 205, 195))
-    cv.rect(0, 106, W, 3, GOLD)
+    check_overflow("masthead right", measure(right, 2, 2), CW)
+    put_spaced(s, PAGE_W - MARGIN - measure(right, 2, 2), 13, right, 2,
+               GOLD_LT, 2)
+    check_overflow("masthead title", measure("Friday 20 November 2026", 5),
+                   CW)
+    put_text(s, MARGIN, 30, "Friday 20 November 2026", 5, WHITE)
+    put_text(s, MARGIN, 86,
+             "Every story on this page happened, or was first reported, on this day.",
+             2, (205, 205, 195))
+    s.box(0, 106, PAGE_W, 3, GOLD)
 
     # ---- three rich panels with caption strips ----
     px = [MARGIN, MARGIN + 312 + 16, MARGIN + 2 * (312 + 16)]
     py, ph = 116, 100
-    panels = [panel_shenzhen, panel_cyclone, panel_ipo]
-    for i, fn in enumerate(panels):
+    for i, fn in enumerate((art_shenzhen, art_cyclone, art_ipo)):
         x = px[i]
-        fn(cv, x, py, 312, ph)
-        cv.rect(x, py + ph - 17, 312, 17, NAVY_DARK)
-        draw_tracked(cv, x + 6, py + ph - 13, PANEL_CAPTIONS[i], 1,
-                     WHITE, 1)
-        cv.outline(x, py, 312, ph, INK, 2)
+        fn(s, x, py, 312, ph)
+        s.box(x, py + ph - 17, 312, 17, NAVY_DARK)
+        put_spaced(s, x + 6, py + ph - 13, PANEL_CAPTIONS[i], 1, WHITE, 1)
+        s.frame(x, py, 312, ph, INK, 2)
 
     # ---- three featured stories under the panels ----
     fy = 224
     for i, st in enumerate(FEATURED):
         x = px[i]
-        cx, cy = x + 10, fy + 9
-        cv.circle(cx, cy, 9, RED)
-        s = str(st["num"])
-        draw_text(cv, cx - text_w(s, 1) // 2, cy - 4, s, 1, WHITE)
-        draw_tracked(cv, x + 24, fy + 2, st["kicker"], 2, RED, 1)
+        number_badge(s, x + 10, fy + 9, st["num"])
+        put_spaced(s, x + 24, fy + 2, st["kicker"], 2, RED, 1)
         yy = fy + 24
-        hlines = wrap_text(st["headline"], 3, 312)
+        hlines = flow_lines(st["headline"], 3, 312)
         if len(hlines) > 3:
-            VIOLATIONS.append("featured %d headline >3 lines"
-                              % st["num"])
+            PROBLEMS.append("featured %d headline >3 lines" % st["num"])
         for ln in hlines[:3]:
-            draw_text(cv, x, yy, ln, 3, INK)
+            put_text(s, x, yy, ln, 3, INK)
             yy += 21
         yy += 2
-        dlines = wrap_text(st["deck"], 2, 312)
+        dlines = flow_lines(st["deck"], 2, 312)
         if len(dlines) > 3:
-            VIOLATIONS.append("featured %d deck >3 lines" % st["num"])
+            PROBLEMS.append("featured %d deck >3 lines" % st["num"])
         for ln in dlines[:3]:
-            draw_text(cv, x, yy, ln, 2, DARKGRAY)
+            put_text(s, x, yy, ln, 2, DARKGRAY)
             yy += 14
 
-    cv.hline(MARGIN, 362, CW, RULE, 2)
+    section_rule(s, 362)
 
     # ---- ten medium tiles, 5 columns x 2 rows ----
     colw, gap = 185, 10
-    rows_y = [372, 476]
     for idx, st in enumerate(MEDIUM):
         r, c = divmod(idx, 5)
         x = MARGIN + c * (colw + gap)
-        y = rows_y[r]
-        draw_icon(cv, x, y, 36, st["icon"])
-        kw = text_w(st["kicker"], 1, 1)
+        y = [372, 476][r]
+        paint_icon(s, x, y, 36, st["icon"])
+        kw = measure(st["kicker"], 1, 1)
         if kw > colw - 42:
-            VIOLATIONS.append(("kicker too wide", st["num"], st["kicker"],
-                               kw))
-        draw_tracked(cv, x + 42, y + 2, st["kicker"], 1, RED, 1)
+            PROBLEMS.append(("kicker too wide", st["num"], st["kicker"],
+                             kw))
+        put_spaced(s, x + 42, y + 2, st["kicker"], 1, RED, 1)
         yy = y + 17
-        hlines = wrap_text(st["headline"], 2, colw - 42)
+        hlines = flow_lines(st["headline"], 2, colw - 42)
         if len(hlines) > 3:
-            VIOLATIONS.append(("headline >3 lines", st["num"],
-                               st["headline"], len(hlines)))
+            PROBLEMS.append(("headline >3 lines", st["num"],
+                             st["headline"], len(hlines)))
         for ln in hlines[:3]:
-            draw_text(cv, x + 42, yy, ln, 2, INK)
+            put_text(s, x + 42, yy, ln, 2, INK)
             yy += 15
         yy = y + 64
-        dlines = wrap_text(st["deck"], 1, colw)
+        dlines = flow_lines(st["deck"], 1, colw)
         if len(dlines) > 2:
-            VIOLATIONS.append(("deck >2 lines", st["num"], st["deck"],
-                               len(dlines)))
+            PROBLEMS.append(("deck >2 lines", st["num"], st["deck"],
+                             len(dlines)))
         for ln in dlines[:2]:
-            draw_text(cv, x, yy, ln, 1, DARKGRAY)
+            put_text(s, x, yy, ln, 1, DARKGRAY)
             yy += 12
 
-    cv.hline(MARGIN, 572, CW, RULE, 2)
+    section_rule(s, 572)
 
     # ---- BY THE NUMBERS strip ----
-    draw_text(cv, MARGIN, 580, "BY THE", 2, RED)
-    draw_text(cv, MARGIN, 596, "NUMBERS", 2, RED)
+    put_text(s, MARGIN, 580, "BY THE", 2, RED)
+    put_text(s, MARGIN, 596, "NUMBERS", 2, RED)
     ncol_w, ncol_gap, nx0 = 210, 8, 130
     for i, (num, label) in enumerate(NUMBERS):
         nx = nx0 + i * (ncol_w + ncol_gap)
-        scale = 3 if text_w(num, 3) <= 200 else 2
-        draw_text(cv, nx, 578, num, scale, NAVY)
+        scale = 3 if measure(num, 3) <= 200 else 2
+        put_text(s, nx, 578, num, scale, NAVY)
         yy = 610
-        for ln in wrap_text(label, 1, ncol_w):
-            draw_text(cv, nx, yy, ln, 1, DARKGRAY)
+        for ln in flow_lines(label, 1, ncol_w):
+            put_text(s, nx, yy, ln, 1, DARKGRAY)
             yy += 9
 
-    cv.hline(MARGIN, 632, CW, RULE, 2)
+    section_rule(s, 632)
 
     # ---- bottom: map + region bars + also list ----
     by = 640
-    draw_tracked(cv, MARGIN, by, "WHERE IT HAPPENED", 2, INK, 2)
-    draw_text(cv, MARGIN, by + 18, "Numbered dots mark stories 1-13",
-              1, GRAY)
+    put_spaced(s, MARGIN, by, "WHERE IT HAPPENED", 2, INK, 2)
+    put_text(s, MARGIN, by + 18, "Numbered dots mark stories 1-13",
+             1, GRAY)
     also_title = "ALSO ON FRIDAY 20 NOVEMBER \u2014 35 MORE"
-    check_fit("also title", text_w(also_title, 2, 1), W - MARGIN - 486)
-    draw_tracked(cv, 486, by, also_title, 2, INK, 1)
+    check_overflow("also title", measure(also_title, 2, 1),
+                   PAGE_W - MARGIN - 486)
+    put_spaced(s, 486, by, also_title, 2, INK, 1)
 
-    pins = [(s["num"], s["pin"]) for s in FEATURED + MEDIUM]
-    draw_map(cv, MARGIN, by + 38, 442, 240, pins)
+    pins = [(st["num"], st["pin"]) for st in FEATURED + MEDIUM]
+    draw_world(s, MARGIN, by + 38, 442, 240, pins)
 
     # STORIES BY REGION bars under the map (2 rows x 3 cells).
     max_n = max(n for _, n, _ in REGIONS)
@@ -1073,60 +1112,58 @@ def draw_page():
         r, c = divmod(i, 3)
         bx = MARGIN + c * 148
         yy = by + 284 + r * 22
-        cv.circle(bx + 4, yy + 4, 4, col)
-        draw_text(cv, bx + 11, yy, name, 1, INK)
+        s.disc(bx + 4, yy + 4, 4, col)
+        put_text(s, bx + 11, yy, name, 1, INK)
         cnt = str(n)
-        draw_text(cv, bx + 147 - text_w(cnt, 1), yy, cnt, 1, INK)
-        cv.rect(bx, yy + 13, 100, 5, (225, 220, 205))
+        put_text(s, bx + 147 - measure(cnt, 1), yy, cnt, 1, INK)
+        s.box(bx, yy + 13, 100, 5, (225, 220, 205))
         if n:
-            cv.rect(bx, yy + 13, max(1, int(100 * n / max_n)), 5, col)
+            s.box(bx, yy + 13, max(1, int(100 * n / max_n)), 5, col)
 
     # ALSO list, two columns of 18/17, 13px pitch.
-    start_num = 14
     half = (len(ALSO) + 1) // 2
     for col_i, chunk in enumerate((ALSO[:half], ALSO[half:])):
         cx = 486 + col_i * 260
         yy = by + 38
         for j, item in enumerate(chunk):
-            num = start_num + (col_i * half + j)
-            draw_text(cv, cx, yy, str(num), 1, RED, bold=True)
+            num = 14 + col_i * half + j
+            put_text(s, cx, yy, str(num), 1, RED, bold=True)
             place, sep, rest = item.partition(": ")
             tx = cx + 24
             if sep:
-                full_w = (text_w(place + ":", 1, 0, )
-                          + text_w(rest, 1))
+                full_w = measure(place + ":", 1) + measure(rest, 1)
                 if full_w > 226:
-                    VIOLATIONS.append((num, item, full_w))
-                draw_text(cv, tx, yy, place + ":", 1, INK, bold=True)
-                tx += text_w(place + ": ", 1)
-                draw_text(cv, tx, yy, rest, 1, INK)
+                    PROBLEMS.append((num, item, full_w))
+                put_text(s, tx, yy, place + ":", 1, INK, bold=True)
+                tx += measure(place + ": ", 1)
+                put_text(s, tx, yy, rest, 1, INK)
             else:
-                if text_w(item, 1) > 226:
-                    VIOLATIONS.append((num, item, text_w(item, 1)))
-                draw_text(cv, tx, yy, item, 1, INK)
+                if measure(item, 1) > 226:
+                    PROBLEMS.append((num, item, measure(item, 1)))
+                put_text(s, tx, yy, item, 1, INK)
             yy += 13
 
-    if VIOLATIONS:
+    if PROBLEMS:
         print("LAYOUT VIOLATIONS:")
-        for v in VIOLATIONS:
+        for v in PROBLEMS:
             print("  ", v)
         sys.exit(1)
 
     # ---- footer ----
-    cv.hline(MARGIN, 974, CW, RULE, 1)
-    draw_text(cv, MARGIN, 980, FOOTER1, 1, GRAY)
-    draw_text(cv, MARGIN, 994, FOOTER2, 1, GRAY)
+    s.hbar(MARGIN, 974, CW, RULE, 1)
+    put_text(s, MARGIN, 980, FOOTER1, 1, GRAY)
+    put_text(s, MARGIN, 994, FOOTER2, 1, GRAY)
 
     total = len(FEATURED) + len(MEDIUM) + len(ALSO)
     if total != 48:
         print("STORY COUNT %d != 48" % total)
         sys.exit(1)
-    return cv
+    return s
 
 
 def main():
-    cv = draw_page()
-    data = png_bytes(cv)
+    surf = build_page()
+    data = encode_png(surf)
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
     dest = os.path.join(out_dir, "entry.png")

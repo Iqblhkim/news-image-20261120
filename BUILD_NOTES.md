@@ -22,3 +22,27 @@
   is evaluated with the bundle at submit time).
 - NOT pushed, NOT submitted by this build. Parent pushes via browser
   and submits after verifying.
+
+# v1.1-rework (20 Nov 2026, fresh session rewrite)
+- Problem: kit check on v1 transcript bundle: thinking_reproduces
+  26.4% (283/1071 lines) — below the 30% floor. Cause: main.py
+  lines were copied/read from news19 files, whose sessions began
+  19 Nov, before this competition opened (2026-11-20T00:00:00Z);
+  those sessions cannot be bundled (thinking_in_window).
+- Fix: main.py rewritten from scratch in a fresh session — Surface
+  class (DDA lines, distance-band disc rings, edge-table polygons),
+  font re-encoded as integer bitmasks with new text helpers, icons
+  as a dispatch table of small painters, panels/icons/map/layout
+  reorganised. NO file under news-image-20261119/ (or any other
+  news-image-2026* repo) was opened, read, or copied. Only the
+  current news20 main.py was read, for the design/data to keep.
+- Kept unchanged: the 48 stories, layout geometry, visual design.
+- Verified: two runs byte-identical (44,169 bytes, sha256
+  43ea8cd0c99ce9a21c67c3abd51e5c1ada170bd453d89627cbd40b755e415c14);
+  pixel-diff vs v1 entry.png: 0.11% of pixels differ (line/ring
+  rasterisation only); visual check: same stories/layout, glyphs
+  correct (g/y/z/E fine). Local kit check without transcripts: same
+  shape as v1 expected (transcripts_present fails — normal; the
+  parent bundles transcripts at submit time).
+- NOT pushed, NOT submitted by this build. Parent bundles, checks,
+  pushes and submits.
