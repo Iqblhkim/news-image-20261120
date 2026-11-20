@@ -46,3 +46,37 @@
   parent bundles transcripts at submit time).
 - NOT pushed, NOT submitted by this build. Parent bundles, checks,
   pushes and submits.
+
+
+# v2 (20 Nov 2026, fresh session rewrite — "Pecut" round)
+- Why: v1.1 ranked 904/1,687, judge 96.11% (interval 94.86–97.35%);
+  cutoff rank 50 sits at 98.30% — a +2.19 point gap. Judge is noisy
+  (news19 v1 97.41% -> v2 96.65% -> v3 93.80%), so v2 is a real
+  redesign, not a tweak: 40 stories (quality over quantity, winner
+  pattern from news17/18), one big hero story with full illustration
+  instead of three equal panels, two picture panels, ten tiles with
+  the icon on top, numbers strip, dotted map with pins, region bars,
+  27 briefs. Headlines reworded; story facts kept from v1.1.
+- Engine rewritten fresh in this session: Canvas class (Bresenham
+  lines, scanline discs/polygons, gradient bands), 5x7 font stored
+  as '1'/'0' strings (different encoding from v1.1's integer
+  bitmasks), icons as one function per kind, panel art (Shenzhen
+  dusk skyline + 3 flags, cyclone spiral, IPO candles), dotted map
+  from hand-plotted continent outlines. NO block copied from v1.1;
+  only the story facts were re-read from it.
+- Bugs found and fixed in-session: (1) draw_glyph tested for '#'
+  while the font strings use '1'/'0' — no text rendered at all;
+  (2) map step_lat had the wrong sign (lat1-lat0 is negative), so
+  the sample latitude drifted north of all land and the map drew
+  zero dots; (3) Europe outline cut London/Moscow out — two points
+  added; (4) five tile headlines wrapped to 3 lines, hero deck
+  overflowed, two briefs too wide — all shortened/reworded.
+- Verified: two runs byte-identical (48,450 bytes, sha256
+  b1d086d34ef3a111adb0314d54129452760571d81bb21c97582a733b79afd6d5);
+  1024x1024, well under 1 MiB; layout self-checks pass (no overflow
+  flags); font test strip read clean (g/y/z/E correct); map shows
+  dotted continents with all 13 pins; region counts sum to 40
+  (Asia 13, Americas 7, Europe 8, Middle East 9, Oceania 1, Global 2).
+- NOT pushed, NOT submitted by this build. Parent bundles (usage
+  row for this subagent session is written only when it completes),
+  pushes via browser, checks and submits.
