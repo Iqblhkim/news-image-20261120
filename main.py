@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""THE WORLD IN ONE DAY -- Friday 20 November 2026 (v4).
+"""THE WORLD IN ONE DAY -- Friday 20 November 2026 (v4.2).
 
 A one-page newspaper front page drawn from nothing but the Python
 standard library. Forty real stories from Friday 20 November 2026:
 three big illustrated leads, ten illustrated tiles, a six-number
 strip, a region bar, a solid world map with numbered pins, 27 more
 briefs, a DATE CHECK box, and a footer.
+
+v4.2 fixes the five findings of the v4.1 analysis
+(analisa-v41-vs-v3-2026-11-21.md): (1) freshness re-audited
+two-way, story by story, against the date each item was first
+reported -- the stale Gemini 4 Neon tile (18 Nov) and the stale
+51-48 Senate number (19 Nov) are replaced by verified 20 Nov
+items (Wall Street's Thursday close, Anthropic's $2tn debut,
+SoftBank's 14.5% plunge) and named in DATE CHECK; the ALSO list
+was rebuilt the same way, dropping every unverified or stale
+brief and fixing three wrong numbers (Sensex, Nikkei, NZ score);
+(2) the AI lead panel gains a 4-city table (Taipei -6.2%,
+Seoul -5.2%, Tokyo -5.1%, Hong Kong -1.9%); (3) the map is
+recoloured sand/sage for contrast, with bigger pins; (4) the
+subhead is back to real serif italic; (5) the masthead font is
+deliberately NOT redesigned -- the gains come from content.
 
 v4 is a ground-up rebuild from the top-10 leaderboard research
 (top5-riset-ulang-2026-11-21.md). v3 ranked 4,030/9,395, judge
@@ -34,8 +49,8 @@ The research found five large, visible gaps in v3:
      from 19 Nov). Both are gone; the exclude list gained the
      Crimea hit. Every DATE CHECK item is absent from the page.
   5. NUMBERS: the strip now holds the six biggest numbers of the
-     day (3 bridges, 300,000+ moved, -6.2% Taiex, 118 Phillips,
-     51-48 Senate vote, $97.17 Anthropic close).
+     day (3 bridges, 372,000 evacuated, -6.2% Taiex, 118 Phillips,
+     100,000 UK-EU youth visas, $97.17 Anthropic close).
 
 Tiles carry a specific flat mini-illustration each (~40% of the
 tile), the ALSO list names a source per brief, the region bar has
@@ -87,8 +102,8 @@ SAND = (226, 208, 170)
 WHITE = (255, 255, 255)
 LINE = (24, 24, 24)
 HAIR = (196, 190, 176)
-MAP_BG = (214, 230, 236)
-MAP_LAND = (148, 176, 186)
+MAP_BG = NAVY
+MAP_LAND = SAND
 DATE_BG = (255, 241, 235)
 
 PINKS = {
@@ -445,6 +460,7 @@ VFONT = {
     ';': ([[(5, 4.5)], [(5, 11.5)], [(5, 12), (4, 15.5)]], 5.5),
     "'": ([[(4.5, 0), (6, 3.5)]], 5.5),
     '\u2019': ([[(4.5, 0), (6, 3.5)]], 5.5),
+    '\u2018': ([[(5.5, 0), (4, 3.5)]], 5.5),
     '"': ([[(3, 0), (4.5, 3.5)], [(6.5, 0), (8, 3.5)]], 7),
     '!': ([[(5, 0), (5, 10)], [(5, 13)]], 5.5),
     '?': ([[(2, 3), (3, 0), (7, 0), (8.5, 2), (8.5, 4.5), (7, 6.5),
@@ -464,6 +480,9 @@ VFONT = {
            [(8.5, 2.5), (7, 0), (3, 0), (1.5, 2), (1.5, 5), (3, 7),
             (7, 7), (8.5, 9), (8.5, 12), (7, 14), (3, 14), (1.5, 11.5)]],
           10.5),
+    '\u20ac': ([[(9, 2), (7, 0), (3, 0), (1, 2), (1, 12), (3, 14), (7, 14),
+                (9, 12)],
+               [(0.5, 5.5), (8.5, 5.5)], [(0.5, 8.5), (8.5, 8.5)]], 10.5),
     '&': ([[(8, 2), (6, 0), (3, 0), (1.5, 2), (1.5, 5), (4, 7), (8.5, 11),
             (8.5, 13), (7, 14), (3, 14), (1.5, 12)], [(4, 7), (1.5, 11)]],
           10.5),
@@ -653,20 +672,39 @@ def art_cyclone(cv, x, y, w, h):
 
 
 def art_market(cv, x, y, w, h):
-    """Asia's AI sell-off: dark board, falling candles, red arrow."""
+    """Asia's AI sell-off: dark board, falling candles, red arrow,
+    plus a 4-city table along the bottom (Taipei/Seoul/Tokyo/
+    Hong Kong Friday closes), as the winning pages do."""
     cv.vgrad(x, y, w, h, NAVY, NAVY_DK)
-    for gy in range(y + 16, y + h - 6, 16):
+    th = 54  # candles + arrow take the top part; the table sits
+    # below them and above the caption/banner2 strip (bottom 18px)
+    for gy in range(y + 8, y + th - 4, 12):
         cv.hline(x + 8, gy, w - 16, (255, 255, 255), 1)
-    candles = [(22, 30, 44, 62), (72, 44, 30, 78), (122, 56, 26, 92),
-               (172, 66, 24, 104), (222, 78, 22, 116), (272, 88, 20, 128)]
-    for i, (bx, top, ht, bot) in enumerate(candles):
+    candles = [(22, 8, 14), (72, 12, 12), (122, 16, 10),
+               (172, 20, 9), (222, 24, 8), (272, 28, 7)]
+    for i, (bx, top, ht) in enumerate(candles):
         col = (220, 80, 80) if i % 2 == 0 else (200, 60, 60)
         cv.fill(x + bx, y + top, 24, ht, col)
-        cv.vline(x + bx + 12, y + top - 6, ht + 12, col, 2)
-    cv.line(x + 18, y + 22, x + w - 40, y + h - 22, (255, 90, 90), 3)
-    cv.line(x + w - 40, y + h - 22, x + w - 66, y + h - 24, (255, 90, 90), 3)
-    cv.line(x + w - 40, y + h - 22, x + w - 42, y + h - 46, (255, 90, 90), 3)
-    cv.disc(x + w - 40, y + h - 22, 4, (255, 90, 90))
+        cv.vline(x + bx + 12, y + top - 4, ht + 8, col, 2)
+    cv.line(x + 18, y + 8, x + w - 40, y + th - 8, (255, 90, 90), 3)
+    cv.line(x + w - 40, y + th - 8, x + w - 66, y + th - 10,
+            (255, 90, 90), 3)
+    cv.line(x + w - 40, y + th - 8, x + w - 42, y + th - 30,
+            (255, 90, 90), 3)
+    cv.disc(x + w - 40, y + th - 8, 4, (255, 90, 90))
+    # 4-city table: 2 rows x 2 columns, Friday closes
+    ty = y + 56
+    cv.fill(x, ty, w, 34, (10, 16, 32))
+    cv.hline(x, ty, w, GOLD, 2)
+    cells = [(("TAIPEI", "-6.2%"), ("SEOUL", "-5.2%")),
+             (("TOKYO", "-5.1%"), ("HONG KONG", "-1.9%"))]
+    for r, row in enumerate(cells):
+        cy = ty + 6 + r * 14
+        for c, (city, val) in enumerate(row):
+            cx = x + 10 + c * 156
+            draw_text(cv, cx, cy, city, 9, WHITE, bold=True)
+            draw_text(cv, cx + text_w(city, 9) + 6, cy, val, 9,
+                      (255, 110, 110), bold=True)
 
 
 # ------------------------------------------------------------- mini scenes
@@ -810,6 +848,40 @@ def _mini_oil(cv, x, y, w, h):
     cv.disc(bx + 26, y + 8, 3, RED)
 
 
+def _mini_chart(cv, x, y, w, h):
+    """Wall Street: a falling line chart on a light board."""
+    cv.fill(x, y, w, h, (238, 230, 212))
+    for gy in range(y + 8, y + h - 4, 10):
+        cv.hline(x + 6, gy, w - 12, (200, 192, 176), 1)
+    pts = [(x + 10, y + 8), (x + 44, y + 14), (x + 78, y + 12),
+           (x + 112, y + 20), (x + 146, y + 28), (x + w - 12, y + h - 8)]
+    for i in range(len(pts) - 1):
+        cv.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                RED, 3)
+    for px, py in pts:
+        cv.disc(px, py, 3, RED)
+    cv.disc(pts[-1][0], pts[-1][1], 4, RED_DK)
+
+
+def _mini_skyline(cv, x, y, w, h):
+    """Tokyo at dusk: towers with lit windows, red down arrow."""
+    cv.vgrad(x, y, w, h, (30, 48, 80), (58, 68, 108))
+    cv.disc(x + w - 22, y + 7, 5, (255, 236, 180))
+    base = y + h
+    for bx, bw, bh in ((6, 24, 20), (34, 18, 28), (56, 28, 16),
+                       (88, 20, 24), (112, 26, 18), (142, 20, 26),
+                       (166, 14, 20)):
+        cv.fill(x + bx, base - bh, bw, bh, (14, 22, 46))
+        for wy in range(base - bh + 4, base - 2, 7):
+            for wx in range(x + bx + 4, x + bx + bw - 3, 8):
+                if (wx * 3 + wy) % 11 < 5:
+                    cv.fill(wx, wy, 2, 2, GOLD_LT)
+    ax = x + w - 30
+    cv.line(ax, y + 6, ax, y + h - 14, (255, 90, 90), 3)
+    cv.line(ax, y + h - 14, ax - 6, y + h - 22, (255, 90, 90), 3)
+    cv.line(ax, y + h - 14, ax + 6, y + h - 22, (255, 90, 90), 3)
+
+
 def _mini_cricket(cv, x, y, w, h):
     cv.fill(x, y, w, h, (70, 150, 80))
     cv.fill(x + w // 2 - 26, y + 6, 52, h - 12, (210, 180, 130))
@@ -832,6 +904,8 @@ MINI_SCENES = {
     "nuke": _mini_nuke,
     "oil": _mini_oil,
     "cricket": _mini_cricket,
+    "chart": _mini_chart,
+    "skyline": _mini_skyline,
 }
 
 
@@ -883,6 +957,7 @@ def draw_world(cv, x, y, w, h, pins):
 
     Pin spots are nudged where true positions would touch: Antalya
     and Gaza, Kyiv and the Poland strike, Brussels and Geneva.
+    Sand background with sage land, pins r=8 with a white ring.
     """
     cv.fill(x, y, w, h, MAP_BG)
     cv.border(x, y, w, h, HAIR, 1)
@@ -897,10 +972,10 @@ def draw_world(cv, x, y, w, h, pins):
         px = x + int((lon - lon0) / (lon1 - lon0) * w)
         py = y + int((lat0 - lat) / (lat0 - lat1) * h)
         col = PINKS.get(region, INK)
-        cv.disc(px, py, 7, col)
-        cv.ring(px, py, 7, WHITE, 1)
+        cv.disc(px, py, 8, col)
+        cv.ring(px, py, 8, WHITE, 2)
         lab = str(num)
-        draw_text(cv, px - text_w(lab, 8) // 2, py - 4, lab, 8, WHITE,
+        draw_text(cv, px - text_w(lab, 9) // 2, py - 4, lab, 9, WHITE,
                   bold=True)
 
 
@@ -934,14 +1009,14 @@ LEADS = [
      "deck": ("An overnight barrage of about 110 missiles and 400 "
               "drones killed nine people and cut power and water in "
               "the capital."),
-     "pin": (30.5, 50.4),
+     "pin": (33.0, 50.4),
      "src": "Kyiv Independent, BBC"},
     {"num": 2, "region": "asia", "art": "cyclone",
      "banner": "CYCLONE AKVAN", "banner2": "Landfall \u00b7 8 am",
      "caption": "Weather office",
      "kicker": "ODISHA, INDIA \u00b7 CYCLONE",
      "headline": "Cyclone Akvan comes ashore in eastern India",
-     "deck": ("Landfall near Gopalpur from about 8 am, after 300,000 "
+     "deck": ("Landfall near Gopalpur from about 8 am, after 372,000 "
               "people were moved to shelters. No deaths were "
               "reported."),
      "pin": (84.9, 19.3),
@@ -951,9 +1026,8 @@ LEADS = [
      "caption": "Closing prices",
      "kicker": "TAIPEI \u00b7 SEOUL \u00b7 TOKYO \u00b7 MARKETS",
      "headline": "AI sell-off sinks Asia's stock markets",
-     "deck": ("Taiwan's index fell 6.2% in its worst week since "
-              "1991. Seoul lost 5.2% and Tokyo 5.1% as chipmakers "
-              "led the slide."),
+     "deck": ("Taiwan's index fell 6.2%. Seoul lost 5.2% and Tokyo "
+              "5.1% as chipmakers led the slide."),
      "pin": (121.5, 25.0),
      "src": "Al Jazeera, Anadolu"},
 ]
@@ -965,14 +1039,14 @@ TILES = [
      "headline": "COP31 reaches its last day with no deal",
      "deck": "Draft text leaves out fossil fuels.",
      "cap": "Ongoing \u00b7 UN News",
-     "pin": (28.5, 38.0), "src": "UN News"},
+     "pin": (27.0, 38.5), "src": "UN News"},
     {"num": 5, "region": "europe", "scene": "flags-uk-eu",
      "banner": "UK-EU DEAL",
      "kicker": "BRUSSELS \u00b7 DIPLOMACY",
      "headline": "UK and EU seal a \u2018reset\u2019 deal",
      "deck": "Food trade, visas, carbon link.",
      "cap": "Agreed \u00b7 Reuters",
-     "pin": (3.0, 52.0), "src": "Reuters"},
+     "pin": (1.0, 53.0), "src": "Reuters"},
     {"num": 6, "region": "europe", "scene": "missile-field",
      "banner": "POLAND: MISSILE",
      "kicker": "EASTERN POLAND \u00b7 SECURITY",
@@ -987,13 +1061,13 @@ TILES = [
      "deck": "Families flee in a single day.",
      "cap": "Witnessed \u00b7 Al Jazeera",
      "pin": (36.8, 30.2), "src": "Al Jazeera"},
-    {"num": 8, "region": "asia", "scene": "delhi",
-     "banner": "MODI: ROYALS",
-     "kicker": "DELHI \u00b7 DIPLOMACY",
-     "headline": "Modi meets royals in Delhi",
-     "deck": "William and Kate begin a visit.",
-     "cap": "Palace \u00b7 BBC",
-     "pin": (77.2, 28.6), "src": "BBC"},
+    {"num": 8, "region": "asia", "scene": "skyline",
+     "banner": "SOFTBANK: -14.5%",
+     "kicker": "TOKYO \u00b7 MARKETS",
+     "headline": "SoftBank plunges 14.5% in AI rout",
+     "deck": "Worst day since Aug 2024.",
+     "cap": "Close \u00b7 CNBC",
+     "pin": (139.7, 35.7), "src": "CNBC"},
     {"num": 9, "region": "europe", "scene": "chess",
      "banner": "GUKESH: TITLE",
      "kicker": "GENEVA \u00b7 SPORT",
@@ -1001,20 +1075,20 @@ TILES = [
      "deck": "The champion keeps his crown.",
      "cap": "Federation \u00b7 Reuters",
      "pin": (10.5, 43.5), "src": "Reuters"},
-    {"num": 10, "region": "americas", "scene": "chip",
-     "banner": "GEMINI 4 NEON",
-     "kicker": "CALIFORNIA \u00b7 TECH",
-     "headline": "Alphabet unveils Gemini 4 Neon",
-     "deck": "A 1m-token model for agents.",
-     "cap": "Filed \u00b7 Reuters",
-     "pin": (-122.1, 37.4), "src": "Reuters"},
-    {"num": 11, "region": "asia", "scene": "nuke",
-     "banner": "N. KOREA: SITE",
-     "kicker": "ASIA \u00b7 SECURITY",
-     "headline": "N. Korea expands nuclear site",
-     "deck": "Satellite images show new building.",
-     "cap": "Satellite \u00b7 AP",
-     "pin": (126.0, 39.8), "src": "AP"},
+    {"num": 10, "region": "americas", "scene": "chart",
+     "banner": "WALL ST: -2.02%",
+     "kicker": "NEW YORK \u00b7 MARKETS",
+     "headline": "S&P falls 2.02% as AI rout spreads",
+     "deck": "Dow -1,101, sixth straight loss.",
+     "cap": "Close \u00b7 AP",
+     "pin": (-74.0, 40.7), "src": "AP"},
+    {"num": 11, "region": "americas", "scene": "chip",
+     "banner": "ANTHROPIC: $2TN",
+     "kicker": "SAN FRANCISCO \u00b7 TECH",
+     "headline": "Anthropic tops $2tn in biggest IPO ever",
+     "deck": "Hit $111.50, closed at $97.17.",
+     "cap": "Debut \u00b7 Reuters",
+     "pin": (-122.4, 37.8), "src": "Reuters"},
     {"num": 12, "region": "africa", "scene": "oil",
      "banner": "KENYA: OIL",
      "kicker": "TURKANA \u00b7 ENERGY",
@@ -1033,56 +1107,61 @@ TILES = [
 
 STATS = [
     ("3", "bridges damaged in Kyiv"),
-    ("300,000+", "people moved to shelters before Akvan"),
+    ("372,000", "evacuated as Cyclone Akvan hits Odisha"),
     ("-6.2%", "Taiwan's share index, Friday's close"),
     ("118", "runs by Glenn Phillips against India"),
-    ("51-48", "Senate vote on Iran war powers"),
+    ("100,000", "youth visas a year in UK-EU deal"),
     ("$97.17", "Anthropic's first-day close"),
 ]
 
 # (region, one-line brief, source) -- numbered 14 to 40 on the page.
-# Each brief names its source, as the winning pages do.
+# Each brief names its source, as the winning pages do. v4.2: every
+# brief below was checked against the date it was first reported;
+# the v4.1 list was mostly stale or unverified (Senate vote 19 Nov,
+# SAFF final 17 Nov, George Washington 18 Nov, Iran cluster) and
+# three numbers were wrong (Sensex, Nikkei, NZ score).
 BRIEFS = [
-    ("europe", "Berlin: Willing coalition meets", "AP"),
-    ("asia", "Trump to meet Kim 'at some point'", "AP"),
-    ("mideast", "Trump: no Iran strike before 2027", "AP"),
-    ("asia", "Xi warns Washington over Taiwan", "AFP"),
-    ("americas", "Senate backs Trump on war powers", "AP"),
-    ("mideast", "Iran still holds 2,500 missiles", "AP"),
-    ("mideast", "Hormuz: 4 ship attacks in 96 hours", "AP"),
-    ("mideast", "Mossad chief urges Iran strikes", "Reuters"),
-    ("mideast", "USS George Washington leaves Gulf", "AP"),
-    ("mideast", "US seeks 17 bunkers in the region", "AP"),
-    ("asia", "NZ 243/5, Nicholls 113* vs India", "PTI"),
-    ("asia", "India beat Pakistan 2-1, SAFF title", "PTI"),
-    ("asia", "Sensex +1.21%, Nifty +1.14%", "PTI"),
-    ("americas", "Wall St: S&P -2.02%, Dow -1,101", "AP"),
-    ("americas", "Anthropic worth near $2tn", "Reuters"),
-    ("asia", "Fire at Yunus home, arson suspected", "AFP"),
-    ("europe", "Spain, Germany pledge $50m at COP31", "AFP"),
-    ("europe", "Netherlands summons Russian envoy", "AP"),
-    ("europe", "Macron: reopen NATO question", "AP"),
-    ("mideast", "Gaza: 1,600 killed since ceasefire", "AFP"),
-    ("asia", "APEC leaders talk trade", "Xinhua"),
-    ("americas", "Brazil: Lula hosts climate talks", "AP"),
-    ("asia", "Tokyo: Nikkei ends flat", "Reuters"),
-    ("europe", "Paris: EU backs defence fund", "AP"),
-    ("mideast", "Cairo: Egypt hosts Gaza talks", "AFP"),
-    ("global", "World to pass 1.5C by 2030", "UN News"),
-    ("mideast", "OPEC+ holds output steady", "Reuters"),
+    ("europe", "EU: €1bn arms for Ukraine", "Reuters"),
+    ("europe", "Dutch €15bn defence plan", "Reuters"),
+    ("europe", "Germany funds Ukraine drones", "Reuters"),
+    ("europe", "UK shell output up 16-fold", "Reuters"),
+    ("europe", "Estonia closes Russia borders", "Reuters"),
+    ("europe", "Ukraine deploys laser air defence", "AP"),
+    ("europe", "Russia hits top EU substation", "Reuters"),
+    ("europe", "Ukraine hits Druzhba oil station", "AP"),
+    ("asia", "Sensex +1.08%, Nifty +1.12%", "PTI"),
+    ("oceania", "NZ 368, Nicholls 175* vs India", "PTI"),
+    ("asia", "Tokyo: Nikkei falls 5.1%", "Reuters"),
+    ("asia", "Japan CPI hits 2.3%", "Reuters"),
+    ("asia", "MSCI Asia-Pacific -8.3%", "Reuters"),
+    ("asia", "Samsung -7%, TSMC -4.8% in rout", "Reuters"),
+    ("asia", "Nifty Bank hits record high", "PTI"),
+    ("asia", "Rupee hits 7-month high", "Reuters"),
+    ("asia", "Kioxia -11.7%, Advantest -10.3%", "Reuters"),
+    ("mideast", "Houthis threaten Saudi ports", "Reuters"),
+    ("mideast", "Brent $92.57 as flows recover", "Reuters"),
+    ("americas", "US tightens Iran sea blockade", "Reuters"),
+    ("americas", "Trump: Putin 'would love to end war'", "AP"),
+    ("global", "Gold falls 9% in a week", "Reuters"),
+    ("global", "World stocks fall for 7th day", "Reuters"),
+    ("global", "UNICEF: 1,144 children killed in war", "AP"),
+    ("global", "France, Panama push COP31 deal", "UN News"),
+    ("africa", "Guinea bans Burkina Faso broadcaster", "AP"),
+    ("africa", "S. Africa holds rates at 7.25%", "Reuters"),
 ]
 
-DATE_BODY = ("Left out on purpose (19 Nov): Trump-Xi-Putin trilateral "
-             "\u00b7 ICJ Rohingya verdict \u00b7 Anthropic $83 IPO price "
-             "\u00b7 GTA VI unlock \u00b7 a $190.4m art sale \u00b7 EU "
-             "45bn-euro loan \u00b7 US-Venezuela deal \u00b7 Fiji dry spell "
-             "\u00b7 Han Duck-soo acquittal \u00b7 Houthi strike on Riyadh "
-             "\u00b7 Crimea span hit.")
+DATE_BODY = ("Left out on purpose (18-19 Nov): Trump-Xi-Putin summit "
+             "\u00b7 ICJ Rohingya verdict \u00b7 Anthropic $83 IPO "
+             "\u00b7 GTA VI unlock \u00b7 $190.4m art sale \u00b7 EU "
+             "\u20ac45bn loan \u00b7 US-Venezuela deal \u00b7 Han "
+             "Duck-soo verdict \u00b7 Houthi strike on Riyadh "
+             "\u00b7 Crimea span hit \u00b7 Gemini 4 Neon debut "
+             "\u00b7 Senate 51-48 Iran vote.")
 
 REGION_ORDER = ["europe", "asia", "mideast", "africa", "americas",
                 "oceania", "global"]
 REGION_LABEL = {"europe": "EUROPE", "asia": "ASIA",
-                "mideast": "MIDDLE EAST", "africa": "AFRICA",
+                "mideast": "MIDEAST", "africa": "AFRICA",
                 "americas": "AMERICAS", "oceania": "OCEANIA",
                 "global": "GLOBAL"}
 
@@ -1128,7 +1207,7 @@ def build_page():
     msize = _fit_size(MASTHEAD, 78, CW)
     draw_text(cv, MX, 34, MASTHEAD, msize, INK, bold=True, serif=True)
     ssize = _fit_size(SUBHEAD, 13, CW)
-    draw_text(cv, MX, 116, SUBHEAD, ssize, INK, italic=True)
+    draw_text(cv, MX, 116, SUBHEAD, ssize, INK, serif=True, italic=True)
     cv.hline(MX, 138, CW, INK, 2)
 
     # ---- numbers strip: six biggest numbers of the day ----
